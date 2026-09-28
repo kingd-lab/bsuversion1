@@ -4,7 +4,7 @@
  * Flow: upload a file -> parse rows client-side with SheetJS -> guess
  * each row's category (categories.js's guessCategory) -> render an
  * editable review table (flagging low-confidence guesses) -> on
- * confirm, bulk-submit everything through Api.submitExpensesBulk.
+ * confirm, bulk-submit everything through Api.submitExpensesBulk; standalone Sharp Sand / Plaster Sand rows are routed by the backend to OtherSandImports.
  *
  * Nothing is saved until the person clicks "Import All Rows" — parsing
  * and category-guessing are entirely client-side and non-destructive.
@@ -333,7 +333,7 @@
     // limit on that URL. A full import of hundreds of rows in one call
     // exceeds it and fails with net::ERR_FAILED 400; batches of
     // CHUNK_SIZE stay comfortably under it.
-    const CHUNK_SIZE = 30;
+    const CHUNK_SIZE = 10;
     const btn = document.getElementById('confirmImportBtn');
     btn.disabled = true;
     let imported = 0;
