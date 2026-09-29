@@ -38,11 +38,59 @@ const CATEGORY_GROUPS = {
   'Block Production': ['Store Construction', 'Cement', 'Burnt Bricks', 'Water Supply', 'Sharp Sand', 'plaster Sand','Block Moulding Labour', 'Block Production'],
   'Main Work': ['Chemical', 'Setting Out Materials', 'Security', 'PPE & Safety Equipment', 'Granite', 'Site Office'],
   'Excavation of Trenches': ['Excavation of Trenches', 'Excavation Equipment Hire'],
-  'Concrete Works': [
-    'Column Blinding', 'Column Base', 'Trenches Casting', 'Columns Before Slab', 'Slab',
-    'Kickers', 'Column on Slab', 'Lintel', 'Beams & First Floor Slab', 'First Floor Columns',
-    'First Floor Lintel', 'Roof Beam', 'Mason/Poker Labour', 'Poker Rental', 'Bentonite'
-  ],
+ A. In CATEGORY_GROUPS, replace the Concrete Works array with:
+
+'Concrete Works': [
+  'Column Blinding',
+  'Column Base',
+  'Trenches Casting',
+  'Columns Before Slab',
+  'Slab',
+  'Kickers',
+  'Column on Slab',
+  'Lintel',
+  'Beams & First Floor Slab',
+  'First Floor Columns',
+  'First Floor Lintel',
+  'Roof Beam',
+  'Mason/Poker Labour',
+  'Poker Rental',
+  'Bentonite',
+  'Block Setting',
+  'Hollow Filling'
+],
+
+This automatically makes:
+CATEGORY_GROUP_OF['Block Setting'] = 'Concrete Works'
+CATEGORY_GROUP_OF['Hollow Filling'] = 'Concrete Works'
+
+
+B. In CATEGORY_KEYWORDS, add these rules BEFORE the generic:
+
+['block', 'Blocks']
+
+Add:
+
+  // --- Concrete Works: block setting / hollow filling ---
+  ['block setting', 'Block Setting'],
+  ['blockwork', 'Block Setting'],
+  ['block work', 'Block Setting'],
+  ['block laying', 'Block Setting'],
+  ['blocklaying', 'Block Setting'],
+  ['block moving', 'Block Setting'],
+
+  ['hollow filling concrete', 'Hollow Filling'],
+  ['hollow filling', 'Hollow Filling'],
+  ['hollow fill', 'Hollow Filling'],
+  ['hollow concrete', 'Hollow Filling'],
+
+IMPORTANT:
+These rules must come BEFORE:
+['block', 'Blocks']
+
+Otherwise "Block Setting" can be caught by the generic "block" rule.
+
+
   'Transportation of Tools': ['Transportation of Tools', 'Fuel for Transportation'],
   'Ach Shittu Materials': ['Ach Shittu Materials (Bulk Purchase)'],
   'Workmanship': ['Mason', 'Carpenter', 'Electrician', 'Plumber', 'Welder', 'Painter', 'General Labour', 'Workmanship (Other)'],
