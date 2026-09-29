@@ -1,654 +1,1324 @@
 /**
- * final-report.js — powers final-report.html (Admin & Boss only).
+ * SITE EXPENSE MANAGEMENT SYSTEM — Backend (Google Apps Script)
+ * ----------------------------------------------------------------
+ * Deploy as a Web App:
+ *   Deploy > New deployment > Type: Web app
+ *   Execute as: Me
+ *   Who has access: Anyone
  *
- * Mirrors the "Benue University Project Final Report" Excel template:
- * Summary (category % + foundation-work control subtotal), By Period,
- * Block Production cost breakdown (Production of Blocks vs. Block
- * Production Expenses), and one detail sheet per category group.
- * The Excel export button builds the exact same multi-sheet workbook,
- * so the in-app view and the downloaded file always agree.
+ * This script is the ONLY thing that ever touches the Spreadsheet.
+ * The frontend never sees the Sheet directly — every read/write goes
+ * through doGet / doPost below, gated by a session token.
  */
-(function () {
-  let currentUser = null;
-  let allExpenses = [];
-  let bpEntries = [];
-  let byGroup = {};
-  let sandEntries = [];
-  let sandLoaded = false;
 
-  function showToast(msg, type) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'toast show' + (type ? ' ' + type : '');
-    setTimeout(() => t.classList.remove('show'), 3200);
-  }
+// ====================== CONFIG ======================
+const SHEET_USERS = 'Users';
+const SHEET_EXPENSES = 'Expenses';
+const SHEET_AUDIT = 'AuditLog';
+const SHEET_SITES = 'Sites';
+const SHEET_PROJECTS = 'Projects';
+const SHEET_BLOCK_PRODUCTION = 'BlockProduction';
+const SHEET_COLUMN_PROGRESS = 'ColumnProgress';
+const SHEET_CASH_BOOK = 'CashBook';
+const SHEET_BLOCK_PRODUCTION_SAND = 'BlockProductionSand';
+const SHEET_OTHER_SAND = 'OtherSandImports';
+const SESSION_DURATION_SECONDS = 6 * 60 * 60; // 6 hours
 
-  function money(n) {
-    return '\u20a6' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-  }
+// Budget-health thresholds — tweak these two numbers to change sensitivity.
+const HEALTH_OVER_BUDGET_PCT = 100;   // spend / budget >= this  -> Over Budget
+const HEALTH_AT_RISK_MARGIN = 15;     // spend% ahead of time% by this many points -> At Risk
+const HEALTH_AT_RISK_SPEND_PCT = 85;  // spend / budget >= this (even on schedule) -> At Risk
 
-  function fmtDate(v) {
-    const d = parseLocalDate(v);
-    if (isNaN(d)) return String(v || '\u2014');
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  }
+// ====================== ENTRY POINTS ======================
 
-  function periodKey(v) {
-    const d = parseLocalDate(v);
-    if (isNaN(d)) return 'Unknown';
-    return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-  }
-
-  async function init() {
-    currentUser = await Auth.requireRole(['Boss', 'Admin']);
-    if (!currentUser) return;
-
-    Layout.build('final-report.html', currentUser);
-    Layout.mainMount().innerHTML = document.getElementById('pageContent').innerHTML;
-    document.getElementById('menuBtn')?.addEventListener('click', Layout.toggleSidebar);
-
+function doGet(e) {
+  // The frontend (api.js) sends every write action as a GET with the JSON
+  // body packed into a 'payload' param. Route those to the write handler.
+  if (e && e.parameter && e.parameter.payload) {
     try {
-      const [expData, bpData, sandData] = await Promise.all([
-        Api.getExpenses(), Api.getBlockProduction(),
-        Api.getSandEntries().catch(() => null) // older backend without sand support: degrade gracefully
-      ]);
-      allExpenses = expData.expenses || [];
-      bpEntries = bpData.entries || [];
-      sandLoaded = !!sandData;
-      sandEntries = sandData ? (sandData.entries || []) : [];
-      groupExpenses();
-      renderSummary();
-      renderByPeriod();
-      renderBlockProductionBreakdown();
-      renderConcreteBreakdown();
-      renderSandBreakdown();
-      populateDetailSelect();
-      wireDetailSelect();
-      wireDownload();
-      if (currentUser.role === 'Admin') initRecategorizeCard();
+      return handleWrite(JSON.parse(e.parameter.payload));
     } catch (err) {
-      showToast(err.message, 'error');
+      return jsonOut({ error: err.message });
     }
   }
+  try {
+    const action = e.parameter.action;
+    const token = e.parameter.token;
 
-  function groupExpenses() {
-    byGroup = {};
-    allExpenses.forEach(e => {
-      const g = CATEGORY_GROUP_OF[e.Category] || 'Other Expenses';
-      (byGroup[g] = byGroup[g] || []).push(e);
+    switch (action) {
+      case 'ping':
+        return jsonOut({ ok: true, message: 'Site Expense API is live' });
+
+      case 'verifySession':
+        return jsonOut(verifySession(token));
+
+      case 'getExpenses':
+        return jsonOut(getExpenses(requireSession(token)));
+
+      case 'getDashboardStats':
+        return jsonOut(getDashboardStats(requireSession(token)));
+
+      case 'getUsers':
+        return jsonOut(getUsers(requireSession(token)));
+
+      case 'getSites':
+        return jsonOut(getSites(requireSession(token)));
+
+      case 'getAuditLog':
+        return jsonOut(getAuditLog(requireSession(token)));
+
+      case 'getProjectHealth':
+        return jsonOut(getProjectHealth(requireSession(token)));
+
+      case 'getBlockProduction':
+        return jsonOut(getBlockProduction(requireSession(token)));
+
+      case 'getColumnProgress':
+        return jsonOut(getColumnProgress(requireSession(token)));
+
+      case 'getCashBook':
+        return jsonOut(getCashBook(requireSession(token)));
+
+      case 'getSandEntries':
+        return jsonOut(getSandEntries(requireSession(token)));
+
+      default:
+        return jsonOut({ error: 'Unknown action: ' + action });
+    }
+  } catch (err) {
+    return jsonOut({ error: err.message });
+  }
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents || '{}');
+    return handleWrite(body);
+  } catch (err) {
+    return jsonOut({ error: err.message });
+  }
+}
+
+function handleWrite(body) {
+  try {
+    const action = body.action;
+
+    switch (action) {
+      case 'login':
+        return jsonOut(login(body.username, body.password));
+
+      case 'logout':
+        return jsonOut(logout(body.token));
+
+      case 'submitExpense':
+        return jsonOut(submitExpense(requireSession(body.token), body.expense));
+
+      case 'submitExpensesBulk':
+        return jsonOut(submitExpensesBulk(requireSession(body.token), body.expenses));
+
+      case 'addUser':
+        return jsonOut(addUser(requireSession(body.token), body.user));
+
+      case 'addSite':
+        return jsonOut(addSite(requireSession(body.token), body.site));
+
+      case 'addProject':
+        return jsonOut(addProject(requireSession(body.token), body.project));
+
+      case 'addBlockProduction':
+        return jsonOut(addBlockProduction(requireSession(body.token), body.entry));
+      case 'addBlockProductionSandBulk':
+        return jsonOut(addBlockProductionSandBulk(requireSession(body.token), body.sandRows));
+
+      case 'addColumnProgress':
+        return jsonOut(addColumnProgress(requireSession(body.token), body.entry));
+
+      case 'autoRecategorize':
+        return jsonOut(autoRecategorize(requireSession(body.token), body.fromCategory, body.dryRun !== false));
+
+      case 'addCashBookEntry':
+        return jsonOut(addCashBookEntry(requireSession(body.token), body.entry));
+
+      case 'addCashBookEntriesBulk':
+        return jsonOut(addCashBookEntriesBulk(requireSession(body.token), body.entries));
+
+      case 'deleteCashBookEntry':
+        return jsonOut(deleteCashBookEntry(requireSession(body.token), body.entryId));
+
+      default:
+        return jsonOut({ error: 'Unknown action: ' + action });
+    }
+  } catch (err) {
+    return jsonOut({ error: err.message });
+  }
+}
+
+// ====================== AUTH ======================
+
+function login(username, password) {
+  if (!username || !password) throw new Error('Username and password required');
+
+  const sheet = getSheet(SHEET_USERS);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const rUser = String(row[headers.indexOf('Username')]).trim();
+    const rPass = String(row[headers.indexOf('Password')]).trim();
+
+    if (rUser.toLowerCase() === String(username).trim().toLowerCase() && rPass === String(password)) {
+      const role = row[headers.indexOf('Role')];
+      const site = row[headers.indexOf('Site')];
+
+      const token = Utilities.getUuid();
+      const session = { username: rUser, role: role, site: site };
+      CacheService.getScriptCache().put(token, JSON.stringify(session), SESSION_DURATION_SECONDS);
+
+      logAudit(rUser, 'LOGIN', 'User logged in');
+
+      return { success: true, token: token, username: rUser, role: role, site: site };
+    }
+  }
+  logAudit(username, 'LOGIN_FAILED', 'Invalid credentials attempt');
+  throw new Error('Invalid username or password');
+}
+
+function logout(token) {
+  const session = getSession(token);
+  if (session) {
+    CacheService.getScriptCache().remove(token);
+    logAudit(session.username, 'LOGOUT', 'User logged out');
+  }
+  return { success: true };
+}
+
+function getSession(token) {
+  if (!token) return null;
+  const raw = CacheService.getScriptCache().get(token);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function requireSession(token) {
+  const session = getSession(token);
+  if (!session) throw new Error('Session expired. Please log in again.');
+  return session;
+}
+
+function verifySession(token) {
+  const session = getSession(token);
+  if (!session) return { valid: false };
+  return { valid: true, username: session.username, role: session.role, site: session.site };
+}
+
+// ====================== EXPENSES ======================
+
+function submitExpense(session, expense) {
+  if (session.role !== 'Site Manager' && session.role !== 'Admin') {
+    throw new Error('Only Site Managers can submit expenses');
+  }
+  if (!expense || !expense.category || !expense.amount) {
+    throw new Error('Missing required expense fields');
+  }
+
+  const sheet = getSheet(SHEET_EXPENSES);
+  const expenseId = 'EXP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
+  const timestamp = new Date();
+  const site = session.role === 'Admin' ? (expense.site || 'ALL') : session.site;
+  const dateStr = expense.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  sheet.appendRow([
+    expenseId,
+    dateStr,
+    site,
+    expense.category,
+    expense.description || '',
+    expense.quantity || '',
+    expense.unit || '',
+    expense.amount,
+    expense.vendor || '',
+    expense.paymentMethod || '',
+    expense.receiptUrl || '',
+    session.username,
+    timestamp,
+    expense.remarks || ''
+  ]);
+  forcePlainTextDate(sheet, sheet.getLastRow(), 2, dateStr); // column B = Date
+
+  logAudit(session.username, 'EXPENSE_SUBMITTED', 'Submitted ' + expenseId + ' (' + expense.amount + ')');
+
+  return { success: true, expenseId: expenseId };
+}
+
+// Bulk version of submitExpense, used by the Excel import feature.
+// Writes every row in ONE batched call instead of one appendRow per
+// row — much faster for imports of dozens/hundreds of expenses, and
+// keeps well within Apps Script's execution time limit.
+function submitExpensesBulk(session, expenses) {
+  if (session.role !== 'Site Manager' && session.role !== 'Admin') {
+    throw new Error('Only Site Managers can submit expenses');
+  }
+  if (!Array.isArray(expenses) || !expenses.length) {
+    throw new Error('No expenses provided');
+  }
+  if (expenses.length > 500) {
+    throw new Error('Please import in batches of 500 or fewer rows');
+  }
+
+  ensureSandImportSheets();
+  const sheet = getSheet(SHEET_EXPENSES);
+  const otherSandSheet = getSheet(SHEET_OTHER_SAND);
+  const timestamp = new Date();
+  const expenseIds = [];
+  const sandRows = [];
+  const normalExpenses = [];
+  expenses.forEach((expense, i) => {
+    const category = String(expense && expense.category || '').trim().toLowerCase();
+    const description = String(expense && expense.description || '').trim().toLowerCase();
+    const isSand = category === 'sharp sand' || category === 'plaster sand' || category === 'plaster sand' ||
+      category === 'plaster sand' || description === 'sharp sand' || description === 'plaster sand';
+    if (isSand) sandRows.push({ expense, i });
+    else normalExpenses.push({ expense, i });
+  });
+  const rows = normalExpenses.map(({expense, i}) => {
+    if (!expense || !expense.category || !expense.amount) {
+      throw new Error('Row ' + (i + 1) + ': category and amount are required');
+    }
+    const expenseId = 'EXP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss') + '-' + i;
+    const site = session.role === 'Admin' ? (expense.site || 'ALL') : session.site;
+    const dateStr = expense.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    expenseIds.push(expenseId);
+    return [
+      expenseId, dateStr, site, expense.category, expense.description || '',
+      expense.quantity || '', expense.unit || '', expense.amount,
+      expense.vendor || '', expense.paymentMethod || '', expense.receiptUrl || '',
+      session.username, timestamp, expense.remarks || ''
+    ];
+  });
+
+  if (rows.length) {
+    const startRow = sheet.getLastRow() + 1;
+    const numCols = 14;
+    sheet.getRange(startRow, 2, rows.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 1, rows.length, numCols).setValues(rows);
+  }
+
+  if (sandRows.length) {
+    const sandOut = sandRows.map(({expense, i}) => {
+      const sandEntryId = 'SAND-OTHER-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss') + '-' + i;
+      const site = session.role === 'Admin' ? (expense.site || 'ALL') : session.site;
+      return [sandEntryId, expense.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'), site, expense.category,
+        expense.description || '', expense.quantity || '', expense.unit || '', Number(expense.amount) || 0, expense.vendor || '',
+        expense.paymentMethod || '', 'Other Expense Import', session.username, timestamp, expense.remarks || ''];
     });
-    // chronological within each group — this report reads like a ledger
-    Object.values(byGroup).forEach(rows => rows.sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date)));
+    const sandStart = otherSandSheet.getLastRow() + 1;
+    otherSandSheet.getRange(sandStart, 2, sandOut.length, 1).setNumberFormat('@');
+    otherSandSheet.getRange(sandStart, 1, sandOut.length, 14).setValues(sandOut);
   }
 
-  function blockProductionSplit() {
-    const rows = byGroup['Block Production'] || [];
-    const autoLog = rows.filter(e => e['Payment Method'] === 'Auto (Production Log)');
-    const manual = rows.filter(e => e['Payment Method'] !== 'Auto (Production Log)');
-    return { autoLog, manual };
+  const totalImported = rows.length + sandRows.length;
+  logAudit(session.username, 'BULK_IMPORT', 'Imported ' + totalImported + ' expenses from Excel (' + sandRows.length + ' routed to OtherSandImports)');
+  return { success: true, count: totalImported, normalCount: rows.length, otherSandCount: sandRows.length, expenseIds: expenseIds };
+}
+
+function getExpenses(session) {
+  const sheet = getSheet(SHEET_EXPENSES);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { expenses: [] };
+
+  const headers = rows[0];
+  let data = rows.slice(1).map(r => rowToObject(headers, r));
+
+  // Site Managers only ever see their own site's records.
+  if (session.role === 'Site Manager') {
+    data = data.filter(r => r.Site === session.site);
   }
 
-  function renderSummary() {
-    let grandTotal = 0, grandCount = 0;
-    CATEGORY_GROUP_ORDER.forEach(g => {
-      const rows = byGroup[g] || [];
-      grandTotal += rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-      grandCount += rows.length;
+  data.sort((a, b) => new Date(a.Date) - new Date(b.Date)); // chronological — was sorting by Timestamp (entry order), which scrambled the true expense date order
+  return { expenses: data };
+}
+
+// ====================== DASHBOARD STATS ======================
+
+function getDashboardStats(session) {
+  const sheet = getSheet(SHEET_EXPENSES);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) {
+    return { todayTotal: 0, monthTotal: 0, allTimeTotal: 0, totalTransactions: 0, totalSites: 0, byCategory: {}, byMonth: {}, bySite: {} };
+  }
+
+  const headers = rows[0];
+  let data = rows.slice(1).map(r => rowToObject(headers, r));
+
+  if (session.role === 'Site Manager') {
+    data = data.filter(r => r.Site === session.site);
+  }
+
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const thisMonth = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+
+  let todayTotal = 0, monthTotal = 0, allTimeTotal = 0;
+  const byCategory = {};
+  const byMonth = {};
+  const bySite = {};
+  const sites = new Set();
+
+  data.forEach(r => {
+    const amt = Number(r.Amount) || 0;
+    const dateStr = formatCellDate(r.Date);
+    sites.add(r.Site);
+
+    if (dateStr === today) todayTotal += amt;
+    if (dateStr.indexOf(thisMonth) === 0) monthTotal += amt;
+    allTimeTotal += amt;
+
+    byCategory[r.Category] = (byCategory[r.Category] || 0) + amt;
+    bySite[r.Site] = (bySite[r.Site] || 0) + amt;
+
+    const monthKey = dateStr.substring(0, 7);
+    byMonth[monthKey] = (byMonth[monthKey] || 0) + amt;
+  });
+
+  return {
+    todayTotal: todayTotal,
+    monthTotal: monthTotal,
+    allTimeTotal: allTimeTotal,
+    totalTransactions: data.length,
+    totalSites: sites.size,
+    byCategory: byCategory,
+    byMonth: byMonth,
+    bySite: bySite
+  };
+}
+
+// ====================== USERS (Admin only) ======================
+
+function getUsers(session) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+  const sheet = getSheet(SHEET_USERS);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  // Never send passwords back to the client.
+  const users = rows.slice(1).map(r => {
+    const obj = rowToObject(headers, r);
+    delete obj.Password;
+    return obj;
+  });
+  return { users: users };
+}
+
+function addUser(session, user) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+  if (!user || !user.username || !user.password || !user.role) {
+    throw new Error('Missing required user fields');
+  }
+  const sheet = getSheet(SHEET_USERS);
+  sheet.appendRow([user.username, user.password, user.role, user.site || 'ALL']);
+  logAudit(session.username, 'USER_CREATED', 'Created user ' + user.username + ' (' + user.role + ')');
+  return { success: true };
+}
+
+// ====================== SITES ======================
+
+function getSites(session) {
+  const sheet = getSheet(SHEET_SITES);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { sites: [] };
+  const headers = rows[0];
+  const sites = rows.slice(1).map(r => rowToObject(headers, r));
+  return { sites: sites };
+}
+
+function addSite(session, site) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+  if (!site || !site.name) throw new Error('Site name required');
+  const sheet = getSheet(SHEET_SITES);
+  sheet.appendRow([site.name, site.location || '', site.status || 'Active']);
+  logAudit(session.username, 'SITE_CREATED', 'Created site ' + site.name);
+  return { success: true };
+}
+
+// ====================== PROJECTS & BUDGET HEALTH ======================
+//
+// A "project" is a budget attached to a Site. Health is worked out from
+// two things compared side by side:
+//   spend%  = money spent so far / budget
+//   time%   = days elapsed so far / total project duration
+// If you're spending noticeably faster than time is passing, that project
+// is trending toward a blowout even if it hasn't gone over yet — that's
+// "At Risk". Already past the budget is always "Over Budget" regardless
+// of schedule. Everything else is "Healthy".
+
+function addProject(session, project) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+  if (!project || !project.name || !project.site || !project.budget) {
+    throw new Error('Project name, site, and budget are required');
+  }
+  const sheet = getSheet(SHEET_PROJECTS);
+  const projectId = 'PRJ-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
+  sheet.appendRow([
+    projectId,
+    project.name,
+    project.site,
+    Number(project.budget) || 0,
+    project.startDate || '',
+    project.endDate || '',
+    project.status || 'Active',
+    project.notes || ''
+  ]);
+  const projRow = sheet.getLastRow();
+  if (project.startDate) forcePlainTextDate(sheet, projRow, 5, project.startDate); // column E = Start Date
+  if (project.endDate) forcePlainTextDate(sheet, projRow, 6, project.endDate);     // column F = End Date
+  logAudit(session.username, 'PROJECT_CREATED', 'Created project ' + project.name + ' (budget ' + project.budget + ')');
+  return { success: true, projectId: projectId };
+}
+
+function getProjectHealth(session) {
+  if (session.role !== 'Admin' && session.role !== 'Boss') throw new Error('Access denied');
+
+  const projSheet = getSheet(SHEET_PROJECTS);
+  const projRows = projSheet.getDataRange().getValues();
+  if (projRows.length < 2) return { projects: [], summary: emptyHealthSummary() };
+
+  const projHeaders = projRows[0];
+  let projects = projRows.slice(1).map(r => rowToObject(projHeaders, r));
+
+  const expSheet = getSheet(SHEET_EXPENSES);
+  const expRows = expSheet.getDataRange().getValues();
+  const spendBySite = {};
+  if (expRows.length > 1) {
+    const expHeaders = expRows[0];
+    expRows.slice(1).forEach(r => {
+      const obj = rowToObject(expHeaders, r);
+      const amt = Number(obj.Amount) || 0;
+      spendBySite[obj.Site] = (spendBySite[obj.Site] || 0) + amt;
     });
-
-    const excavationTotal = (byGroup['Excavation of Trenches'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    const concreteTotal = (byGroup['Concrete Works'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-
-    document.getElementById('summaryRows').innerHTML = CATEGORY_GROUP_ORDER.map(g => {
-      const rows = byGroup[g] || [];
-      const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-      const pct = grandTotal > 0 ? (total / grandTotal * 100) : 0;
-      return `<tr><td>${g}</td><td><strong>${money(total)}</strong></td><td>${pct.toFixed(1)}%</td></tr>`;
-    }).join('');
-
-    document.getElementById('foundationSubtotal').textContent =
-      `${money(excavationTotal + concreteTotal)} (Excavation of Trenches + Concrete Works)`;
-    document.getElementById('grandTotal').textContent = money(grandTotal);
-
-    let latestDate = null;
-    allExpenses.forEach(e => {
-      const d = parseLocalDate(e.Date);
-      if (!isNaN(d) && (!latestDate || d > latestDate)) latestDate = d;
-    });
-    document.getElementById('reportMeta').textContent =
-      `${grandCount} transactions \u00b7 data through ${latestDate ? fmtDate(latestDate) : '\u2014'} \u00b7 generated ${new Date().toLocaleDateString()}`;
   }
 
-  function renderByPeriod() {
-    const periods = {}; // { 'Sep 2026': { group: total } }
-    CATEGORY_GROUP_ORDER.forEach(g => {
-      (byGroup[g] || []).forEach(e => {
-        const key = periodKey(e.Date);
-        periods[key] = periods[key] || {};
-        periods[key][g] = (periods[key][g] || 0) + (Number(e.Amount) || 0);
-      });
-    });
+  const now = new Date();
+  const results = projects.map(p => {
+    const budget = Number(p.Budget) || 0;
+    const spend = spendBySite[p.Site] || 0;
+    const spentPct = budget > 0 ? (spend / budget * 100) : null;
 
-    const sortedKeys = Object.keys(periods).sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
+    let timePct = null;
+    const start = p['Start Date'] ? new Date(p['Start Date']) : null;
+    const end = p['End Date'] ? new Date(p['End Date']) : null;
+    if (start && end && !isNaN(start) && !isNaN(end) && end > start) {
+      const totalDays = (end - start) / 86400000;
+      const elapsedDays = Math.min(Math.max((now - start) / 86400000, 0), totalDays);
+      timePct = elapsedDays / totalDays * 100;
+    }
 
-    document.getElementById('byPeriodHead').innerHTML =
-      ['Period', ...CATEGORY_GROUP_ORDER, 'Total'].map(h => `<th>${h}</th>`).join('');
+    const status = computeHealthStatus(budget, spentPct, timePct);
 
-    const totals = {};
-    let grand = 0;
-    const rowsHtml = sortedKeys.map(key => {
-      let rowTotal = 0;
-      const cells = CATEGORY_GROUP_ORDER.map(g => {
-        const v = (periods[key] && periods[key][g]) || 0;
-        rowTotal += v;
-        totals[g] = (totals[g] || 0) + v;
-        return `<td>${money(v)}</td>`;
-      }).join('');
-      grand += rowTotal;
-      return `<tr><td><strong>${key}</strong></td>${cells}<td><strong>${money(rowTotal)}</strong></td></tr>`;
-    }).join('');
-
-    const totalRow = `<tr style="font-weight:700;border-top:2px solid var(--color-border);">
-      <td>TOTAL</td>
-      ${CATEGORY_GROUP_ORDER.map(g => `<td>${money(totals[g] || 0)}</td>`).join('')}
-      <td>${money(grand)}</td>
-    </tr>`;
-
-    document.getElementById('byPeriodRows').innerHTML = rowsHtml + totalRow;
-  }
-
-  function renderBlockProductionBreakdown() {
-    const { autoLog, manual } = blockProductionSplit();
-    const autoTotal = autoLog.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    const manualTotal = manual.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-
-    document.getElementById('blockProdRows').innerHTML = `
-      <tr><td>Production of Blocks (auto-logged)</td><td>${autoLog.length}</td><td>${money(autoTotal)}</td></tr>
-      <tr><td>Block Production Expenses (manual)</td><td>${manual.length}</td><td>${money(manualTotal)}</td></tr>
-      <tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL</td><td>${autoLog.length + manual.length}</td><td>${money(autoTotal + manualTotal)}</td></tr>
-    `;
-  }
-
-  // Concrete Works breakdown: one line per component category, so the
-  // report shows what makes up the Concrete Works total.
-  function concreteBreakdown() {
-    const rows = byGroup['Concrete Works'] || [];
-    const by = {};
-    CATEGORY_GROUPS['Concrete Works'].forEach(c => { by[c] = { count: 0, total: 0 }; });
-    rows.forEach(e => {
-      const k = e.Category;
-      by[k] = by[k] || { count: 0, total: 0 };
-      by[k].count += 1;
-      by[k].total += Number(e.Amount) || 0;
-    });
-    const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    // components with activity first, biggest first; empty ones dropped
-    const list = Object.keys(by).filter(k => by[k].count > 0)
-      .sort((a, b) => by[b].total - by[a].total)
-      .map(k => ({ name: k, count: by[k].count, total: by[k].total, pct: total > 0 ? by[k].total / total : 0 }));
-    return { list, total, count: rows.length };
-  }
-
-  function renderConcreteBreakdown() {
-    const { list, total, count } = concreteBreakdown();
-    const body = list.map(r =>
-      `<tr><td>${r.name}</td><td>${r.count}</td><td>${money(r.total)}</td><td>${(r.pct * 100).toFixed(1)}%</td></tr>`
-    ).join('') || '<tr><td colspan="4">No Concrete Works transactions yet.</td></tr>';
-    document.getElementById('concreteRows').innerHTML = body +
-      `<tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL CONCRETE WORKS</td><td>${count}</td><td>${money(total)}</td><td>${total > 0 ? '100.0%' : '\u2014'}</td></tr>`;
-  }
-
-  // ---------------- Sand (own sheet + breakdown) ----------------
-  function sandTypeOf(e) {
-    const t = ((e['Sand Type'] || '') + ' ' + (e.Description || '')).toLowerCase();
-    if (t.indexOf('plaster') !== -1) return 'Plaster Sand';
-    if (t.indexOf('sharp') !== -1) return 'Sharp Sand';
-    return 'Other Sand';
-  }
-
-  function sandBreakdown() {
-    const total = sandEntries.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    const group = (keyFn) => {
-      const m = {};
-      sandEntries.forEach(e => {
-        const k = keyFn(e);
-        m[k] = m[k] || { count: 0, qty: 0, total: 0 };
-        m[k].count += 1;
-        m[k].qty += Number(e.Quantity) || 0;
-        m[k].total += Number(e.Amount) || 0;
-      });
-      return Object.keys(m).sort((a, b) => m[b].total - m[a].total)
-        .map(k => ({ name: k, count: m[k].count, qty: m[k].qty, total: m[k].total, pct: total > 0 ? m[k].total / total : 0 }));
+    return {
+      'Project ID': p['Project ID'],
+      'Project Name': p['Project Name'],
+      Site: p.Site,
+      Budget: budget,
+      Spend: spend,
+      Remaining: budget - spend,
+      SpentPct: spentPct,
+      TimePct: timePct,
+      Status: status,
+      'Start Date': p['Start Date'] || '',
+      'End Date': p['End Date'] || '',
+      Notes: p.Notes || ''
     };
-    return { total, count: sandEntries.length, byType: group(sandTypeOf), bySource: group(e => e.Origin || 'Other') };
+  });
+
+  return { projects: results, summary: summarizeHealth(results) };
+}
+
+function computeHealthStatus(budget, spentPct, timePct) {
+  if (!budget) return 'No Budget Set';
+  if (spentPct >= HEALTH_OVER_BUDGET_PCT) return 'Over Budget';
+  if (timePct !== null && (spentPct - timePct) > HEALTH_AT_RISK_MARGIN) return 'At Risk';
+  if (spentPct >= HEALTH_AT_RISK_SPEND_PCT) return 'At Risk';
+  return 'Healthy';
+}
+
+function summarizeHealth(results) {
+  const summary = emptyHealthSummary();
+  results.forEach(r => {
+    summary.totalBudget += r.Budget;
+    summary.totalSpend += r.Spend;
+    if (r.Status === 'Healthy') summary.healthy++;
+    else if (r.Status === 'At Risk') summary.atRisk++;
+    else if (r.Status === 'Over Budget') summary.overBudget++;
+    else summary.noBudget++;
+  });
+  summary.overallPct = summary.totalBudget > 0 ? (summary.totalSpend / summary.totalBudget * 100) : 0;
+  return summary;
+}
+
+function emptyHealthSummary() {
+  return { totalBudget: 0, totalSpend: 0, overallPct: 0, healthy: 0, atRisk: 0, overBudget: 0, noBudget: 0 };
+}
+
+// ====================== BLOCK PRODUCTION TRACKER ======================
+//
+// Logs daily block-moulding output — cement bags used, blocks produced,
+// and the two labour components typical of this work: a rate paid per
+// bag of cement mixed, and a rate paid per finished block/piece. Total
+// labour cost for the day = (bags × rate/bag) + (pieces × rate/piece).
+//
+// Every entry with a cost also auto-creates a matching row in Expenses
+// (Category: "Block Moulding Labour", under the "Block Production"
+// group) so it flows into Reports, the group filter, and Excel/PDF
+// exports without being entered twice.
+
+function addBlockProduction(session, entry) {
+  if (session.role !== 'Admin' && session.role !== 'Site Manager') throw new Error('Access denied');
+  if (!entry || !entry.date || !entry.site || !entry.cementBags) {
+    throw new Error('Date, site, and cement bags are required');
+  }
+  if (session.role === 'Site Manager' && entry.site !== session.site) {
+    throw new Error('You can only log production for your own site');
   }
 
-  function renderSandBreakdown() {
-    const b = sandBreakdown();
-    document.getElementById('sandNote').textContent = sandLoaded
-      ? `${b.count} sand transactions`
-      : 'Sand data unavailable \u2014 redeploy the updated backend (Code.gs)';
-    const empty = (cols) => `<tr><td colspan="${cols}">No sand transactions yet.</td></tr>`;
-    document.getElementById('sandTypeRows').innerHTML = (b.byType.length
-      ? b.byType.map(r => `<tr><td>${r.name}</td><td>${r.count}</td><td>${r.qty || '\u2014'}</td><td>${money(r.total)}</td><td>${(r.pct * 100).toFixed(1)}%</td></tr>`).join('') +
-        `<tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL SAND</td><td>${b.count}</td><td>${b.byType.reduce((s, r) => s + r.qty, 0) || '\u2014'}</td><td>${money(b.total)}</td><td>100.0%</td></tr>`
-      : empty(5));
-    document.getElementById('sandSourceRows').innerHTML = b.bySource.length
-      ? b.bySource.map(r => `<tr><td>${r.name}</td><td>${r.count}</td><td>${money(r.total)}</td></tr>`).join('')
-      : empty(3);
-    document.getElementById('sandDetailRows').innerHTML = sandEntries.length
-      ? sandEntries.map(e => `<tr><td>${fmtDate(e.Date)}</td><td>${sandTypeOf(e)}</td><td>${e.Description || '\u2014'}</td><td>${e.Origin || ''}</td><td>${e.Quantity || '\u2014'}</td><td><strong>${money(e.Amount)}</strong></td></tr>`).join('')
-      : empty(6);
+  const cementBags = Number(entry.cementBags) || 0;
+  const blocksProduced = Number(entry.blocksProduced) || 0;
+  const labourRatePerBag = Number(entry.labourRatePerBag) || 0;
+  const ratePerPiece = Number(entry.ratePerPiece) || 0;
+  const pieces = entry.pieces !== undefined && entry.pieces !== '' ? Number(entry.pieces) : blocksProduced;
+
+  const avgPerCement = cementBags > 0 ? (blocksProduced / cementBags) : 0;
+  const labourCostBagBasis = cementBags * labourRatePerBag;
+  const labourCostPieceBasis = pieces * ratePerPiece;
+  const totalCost = labourCostBagBasis + labourCostPieceBasis;
+
+  const entryId = 'BP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
+
+  const sheet = getSheet(SHEET_BLOCK_PRODUCTION);
+  sheet.appendRow([
+    entryId, entry.date, entry.site, cementBags, blocksProduced,
+    Math.round(avgPerCement * 100) / 100, labourRatePerBag, labourCostBagBasis,
+    ratePerPiece, pieces, labourCostPieceBasis, totalCost,
+    entry.notes || '', session.username, new Date().toISOString(), ''
+  ]);
+  forcePlainTextDate(sheet, sheet.getLastRow(), 2, entry.date); // column B = Date
+
+  // Auto-post the day's labour cost as an expense so it shows up in
+  // Reports/exports under Block Production without re-entry.
+  let expenseId = '';
+  if (totalCost > 0) {
+    expenseId = 'EXP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
+    const expSheet = getSheet(SHEET_EXPENSES);
+    expSheet.appendRow([
+      expenseId, entry.date, entry.site, 'Block Moulding Labour',
+      'Block production: ' + cementBags + ' bags cement → ' + blocksProduced + ' blocks',
+      cementBags, 'bags', totalCost, '', 'Auto (Production Log)', '',
+      session.username, new Date().toISOString(), 'Linked to ' + entryId
+    ]);
+    forcePlainTextDate(expSheet, expSheet.getLastRow(), 2, entry.date); // column B = Date
+    const lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 16).setValue(expenseId); // stamp the link back
   }
 
-  function populateDetailSelect() {
-    const sel = document.getElementById('detailGroupSelect');
-    sel.innerHTML = CATEGORY_GROUP_ORDER.map(g => `<option value="${g}">${g}</option>`).join('');
-    renderDetail(sel.value);
-  }
+  logAudit(session.username, 'PRODUCTION_LOGGED', entryId + ' — ' + cementBags + ' bags, ' + blocksProduced + ' blocks, total cost ' + totalCost);
+  return { success: true, entryId: entryId, expenseId: expenseId, avgPerCement: avgPerCement, totalCost: totalCost };
+}
 
-  function renderDetail(group) {
-    const rows = byGroup[group] || [];
-    const tbody = document.getElementById('detailRows');
-    const empty = document.getElementById('detailEmpty');
-    if (!rows.length) {
-      tbody.innerHTML = '';
-      empty.style.display = 'block';
-      return;
+function getBlockProduction(session) {
+  const sheet = getSheet(SHEET_BLOCK_PRODUCTION);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { entries: [], totals: emptyProductionTotals(), trend: [] };
+
+  const headers = rows[0];
+  let entries = rows.slice(1).map(r => rowToObject(headers, r));
+
+  if (session.role === 'Site Manager') {
+    entries = entries.filter(e => e.Site === session.site);
+  }
+  entries.sort((a, b) => new Date(b.Date) - new Date(a.Date));
+
+  const totals = entries.reduce((acc, e) => {
+    acc.cementBags += Number(e['Cement (Bags)']) || 0;
+    acc.blocksProduced += Number(e['Blocks Produced']) || 0;
+    acc.totalCost += Number(e['Total Cost']) || 0;
+    return acc;
+  }, emptyProductionTotals());
+  totals.avgPerCement = totals.cementBags > 0 ? (totals.blocksProduced / totals.cementBags) : 0;
+  totals.costPerBlock = totals.blocksProduced > 0 ? (totals.totalCost / totals.blocksProduced) : 0;
+
+  const trend = entries.slice().reverse().map(e => ({
+    date: e.Date,
+    blocksProduced: Number(e['Blocks Produced']) || 0,
+    avgPerCement: Number(e['Avg per Cement']) || 0,
+    totalCost: Number(e['Total Cost']) || 0
+  }));
+
+  return { entries: entries, totals: totals, trend: trend };
+}
+
+function emptyProductionTotals() {
+  return { cementBags: 0, blocksProduced: 0, totalCost: 0, avgPerCement: 0, costPerBlock: 0 };
+}
+
+// One-off import of historical block production data — e.g. from an
+// uploaded spreadsheet like "BSU Block Production Breakdown". Edit SITE
+// and the ROWS array below to match your data, then run this once from
+// the function dropdown. Each row becomes both a BlockProduction entry
+// and a linked Expense, exactly like using the app's own form.
+function importBlockProductionData() {
+  const SITE = 'Benue Site'; // <-- change to match an existing site name exactly
+  const LABOUR_RATE_PER_BAG = 2900;
+  const RATE_PER_PIECE = 100;
+
+  // [date, cementBags, blocksProduced, pieces]
+  const ROWS = [
+    ['2026-07-09', 20, 600, 600],
+    ['2026-07-10', 30, 905, 900],
+    ['2026-07-11', 23, 734, 734],
+    ['2026-07-13', 32, 1054, 1054],
+    ['2026-07-14', 38, 1308, 1309],
+    ['2026-07-15', 23, 954, 954],
+    ['2026-07-17', 25, 856, 856],
+    ['2026-07-18', 13, 445, 445],
+    ['2026-07-19', 24, 842, 842],
+    ['2026-07-20', 25, 862, 862],
+    ['2026-07-21', 20, 700, 700]
+  ];
+
+  const importSession = { username: 'import-script', role: 'Admin', site: SITE };
+  ROWS.forEach(r => {
+    addBlockProduction(importSession, {
+      date: r[0], site: SITE, cementBags: r[1], blocksProduced: r[2],
+      labourRatePerBag: LABOUR_RATE_PER_BAG, ratePerPiece: RATE_PER_PIECE, pieces: r[3],
+      notes: 'Imported from BSU Block Production Breakdown'
+    });
+  });
+  Logger.log('Imported ' + ROWS.length + ' block production entries for ' + SITE + '.');
+}
+
+// One-off migration for rows that were created BEFORE the plain-text
+// date fix — those still have real Date-object values that depend on
+// Session.getScriptTimeZone() being configured correctly to display
+// right. This re-stamps every Date/Start Date/End Date cell as plain
+// text, using the EXPLICIT timezone below (not the script's own
+// setting) so it's correct even if your script and spreadsheet
+// timezones don't currently agree with each other.
+//
+// IMPORTANT: set this to your actual local timezone before running.
+const CORRECT_TIMEZONE = 'Africa/Lagos';
+
+function fixExistingDates() {
+  let fixedCount = 0;
+
+  const expSheet = getSheet(SHEET_EXPENSES);
+  fixedCount += fixDateColumn(expSheet, 2); // Date
+
+  const bpSheet = getSheet(SHEET_BLOCK_PRODUCTION);
+  fixedCount += fixDateColumn(bpSheet, 2); // Date
+
+  const projSheet = getSheet(SHEET_PROJECTS);
+  fixedCount += fixDateColumn(projSheet, 5); // Start Date
+  fixedCount += fixDateColumn(projSheet, 6); // End Date
+
+  Logger.log('Fixed ' + fixedCount + ' date cells using timezone ' + CORRECT_TIMEZONE + '.');
+}
+
+function fixDateColumn(sheet, col) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const range = sheet.getRange(2, col, lastRow - 1, 1);
+  const values = range.getValues();
+  let fixed = 0;
+  for (let i = 0; i < values.length; i++) {
+    const val = values[i][0];
+    if (val instanceof Date) {
+      const dateStr = Utilities.formatDate(val, CORRECT_TIMEZONE, 'yyyy-MM-dd');
+      const cell = sheet.getRange(2 + i, col);
+      cell.setNumberFormat('@');
+      cell.setValue(dateStr);
+      fixed++;
     }
-    empty.style.display = 'none';
-    tbody.innerHTML = rows.map(e => `
-      <tr>
-        <td>${fmtDate(e.Date)}</td>
-        <td><span class="badge">${e.Category}</span></td>
-        <td>${e.Description || ''}</td>
-        <td>${e.Vendor || '\u2014'}</td>
-        <td><strong>${money(e.Amount)}</strong></td>
-        <td>${e['Payment Method'] || '\u2014'}</td>
-      </tr>
-    `).join('') + `
-      <tr style="font-weight:700;border-top:2px solid var(--color-border);">
-        <td colspan="4">TOTAL</td>
-        <td>${money(rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0))}</td>
-        <td></td>
-      </tr>
-    `;
+  }
+  return fixed;
+}
+
+// ====================== COLUMN PROGRESS TRACKER (Excavation of Trenches) ======================
+//
+// Tracks physical progress — columns achieved per day — separately from
+// cost, since column-base work costs (labour, casting materials, site
+// logistics) vary day to day and aren't a clean rate-per-unit formula
+// the way Block Production's labour cost is. Cost still lives in the
+// normal Expenses sheet under "Excavation of Trenches" / "Excavation
+// Equipment Hire" — this tracker just adds the progress dimension
+// (columns achieved) and a combined cost-per-column efficiency read.
+
+function addColumnProgress(session, entry) {
+  if (session.role !== 'Admin' && session.role !== 'Site Manager') throw new Error('Access denied');
+  if (!entry || !entry.date || !entry.site || !entry.columnsAchieved) {
+    throw new Error('Date, site, and columns achieved are required');
+  }
+  if (session.role === 'Site Manager' && entry.site !== session.site) {
+    throw new Error('You can only log progress for your own site');
   }
 
-  function wireDetailSelect() {
-    document.getElementById('detailGroupSelect').addEventListener('change', (e) => renderDetail(e.target.value));
-  }
+  const columnsAchieved = Number(entry.columnsAchieved) || 0;
+  const entryId = 'CP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
 
-  // ---------------------------------------------------------------
-  // Excel export — builds the exact same multi-sheet workbook as the
-  // Benue University Project Final Report template.
-  // ---------------------------------------------------------------
-  function wireDownload() {
-    document.getElementById('downloadExcelBtn').addEventListener('click', () => {
-      try {
-        buildAndDownloadWorkbook();
-        showToast('Report downloaded', 'success');
-      } catch (err) {
-        showToast('Export failed: ' + err.message, 'error');
+  const sheet = getSheet(SHEET_COLUMN_PROGRESS);
+  sheet.appendRow([entryId, entry.date, entry.site, columnsAchieved, entry.notes || '', session.username, new Date().toISOString()]);
+  forcePlainTextDate(sheet, sheet.getLastRow(), 2, entry.date); // column B = Date
+
+  logAudit(session.username, 'COLUMN_PROGRESS_LOGGED', entryId + ' — ' + columnsAchieved + ' columns achieved');
+  return { success: true, entryId: entryId };
+}
+
+function getColumnProgress(session) {
+  const sheet = getSheet(SHEET_COLUMN_PROGRESS);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { entries: [], totals: { columnsAchieved: 0, excavationCost: 0, costPerColumn: 0 }, trend: [] };
+
+  const headers = rows[0];
+  let entries = rows.slice(1).map(r => rowToObject(headers, r));
+  if (session.role === 'Site Manager') {
+    entries = entries.filter(e => e.Site === session.site);
+  }
+  entries.sort((a, b) => new Date(b.Date) - new Date(a.Date));
+
+  const totalColumns = entries.reduce((s, e) => s + (Number(e['Columns Achieved']) || 0), 0);
+
+  // Pull matching Excavation of Trenches / Excavation Equipment Hire
+  // costs from Expenses so the page can show cost alongside progress.
+  const expSheet = getSheet(SHEET_EXPENSES);
+  const expRows = expSheet.getDataRange().getValues();
+  let excavationCost = 0;
+  if (expRows.length > 1) {
+    const expHeaders = expRows[0];
+    expRows.slice(1).forEach(r => {
+      const obj = rowToObject(expHeaders, r);
+      if (session.role === 'Site Manager' && obj.Site !== session.site) return;
+      // Excavation of Trenches + Concrete Works (column base work is
+      // folded into Concrete Works, per site team clarification — see
+      // categories.js) — both count toward the cost-per-column figure.
+      const CONCRETE_WORKS_CATEGORIES = [
+        'Column Blinding', 'Column Base', 'Trenches Casting', 'Columns Before Slab', 'Slab',
+        'Kickers', 'Column on Slab', 'Lintel', 'Beams & First Floor Slab', 'First Floor Columns',
+        'First Floor Lintel', 'Roof Beam', 'Mason/Poker Labour', 'Poker Rental', 'Bentonite'
+      ];
+      if (obj.Category === 'Excavation of Trenches' || obj.Category === 'Excavation Equipment Hire' || CONCRETE_WORKS_CATEGORIES.indexOf(obj.Category) !== -1) {
+        excavationCost += Number(obj.Amount) || 0;
       }
     });
   }
 
-  function sheetSafeName(name) {
-    return name.replace(/[:\\/?*\[\]]/g, '').slice(0, 31);
+  const costPerColumn = totalColumns > 0 ? (excavationCost / totalColumns) : 0;
+
+  // Cumulative trend, oldest first, for a running-total progress chart.
+  let cumulative = 0;
+  const trend = entries.slice().reverse().map(e => {
+    cumulative += Number(e['Columns Achieved']) || 0;
+    return { date: e.Date, columnsAchieved: Number(e['Columns Achieved']) || 0, cumulative: cumulative };
+  });
+
+  return {
+    entries: entries,
+    totals: { columnsAchieved: totalColumns, excavationCost: excavationCost, costPerColumn: costPerColumn },
+    trend: trend
+  };
+}
+
+function logAudit(username, action, details) {
+  const sheet = getSheet(SHEET_AUDIT);
+  sheet.appendRow([new Date(), username, action, details]);
+}
+
+function getAuditLog(session) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+  const sheet = getSheet(SHEET_AUDIT);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { logs: [] };
+  const headers = rows[0];
+  let logs = rows.slice(1).map(r => rowToObject(headers, r));
+  logs.reverse();
+  return { logs: logs.slice(0, 500) };
+}
+
+// ====================== BULK AUTO RE-CATEGORIZATION ======================
+//
+// One-time cleanup tool: historical expenses were imported with a single
+// blanket Category ("Excavation of Trenches") covering everything from
+// real trench digging to column casting to mason labour. Now that
+// categories.js has specific leaf categories for each, this re-runs
+// guessCategory() (see Categories.gs) against every expense still sitting
+// under a given "from" category and proposes moving it to whatever
+// specific category its Description actually matches.
+//
+// Always preview (dryRun) before applying — this touches every row in
+// Expenses that matches, and there's no automatic undo.
+
+function autoRecategorize(session, fromCategory, dryRun) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+  if (!fromCategory) throw new Error('fromCategory is required');
+
+  const sheet = getSheet(SHEET_EXPENSES);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const catCol = headers.indexOf('Category');
+  const descCol = headers.indexOf('Description');
+  const idCol = headers.indexOf('Expense ID');
+  const amountCol = headers.indexOf('Amount');
+
+  if (catCol === -1 || descCol === -1) {
+    throw new Error('Expenses sheet is missing a Category or Description column');
   }
 
-  const NGN = '"\u20a6"#,##0';
+  const matches = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (row[catCol] !== fromCategory) continue;
 
-  function setCurrency(ws, refs) {
-    refs.forEach(([r, c]) => {
-      const ref = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 });
-      if (ws[ref]) ws[ref].z = NGN;
+    const guess = guessCategory(row[descCol]);
+    // Only act on confident keyword matches that actually move the
+    // expense somewhere new — never touch rows guessCategory can't
+    // place, and never "match" a row into the category it's already in.
+    if (guess.confidence !== 'keyword' || guess.category === fromCategory) continue;
+
+    matches.push({
+      rowIndex: i + 1,
+      expenseId: row[idCol],
+      description: row[descCol],
+      amount: row[amountCol],
+      oldCategory: row[catCol],
+      newCategory: guess.category
     });
-  }
 
-  function buildDetailSheetAoa(title, subtitle, rows) {
-    const aoa = [];
-    const currency = [];
-    aoa.push([title]);
-    aoa.push([subtitle]);
-    aoa.push([]);
-    aoa.push(['Date', 'Detail Category', 'Description', 'Vendor', 'Amount (\u20a6)', 'Payment Method']);
-    rows.forEach(e => {
-      aoa.push([fmtDate(e.Date), e.Category, e.Description || '', e.Vendor || '', Number(e.Amount) || 0, e['Payment Method'] || '']);
-      currency.push([aoa.length, 5]);
-    });
-    const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    aoa.push(['', '', '', 'TOTAL', total, '']);
-    currency.push([aoa.length, 5]);
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 55 }, { wch: 24 }, { wch: 16 }, { wch: 18 }];
-    setCurrency(ws, currency);
-    return ws;
-  }
-
-  function buildAndDownloadWorkbook() {
-    const wb = XLSX.utils.book_new();
-    const reportDate = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
-
-    let latestDate = null;
-    allExpenses.forEach(e => {
-      const d = parseLocalDate(e.Date);
-      if (!isNaN(d) && (!latestDate || d > latestDate)) latestDate = d;
-    });
-    const latestStr = latestDate ? fmtDate(latestDate) : 'unknown';
-
-    let grandTotal = 0, grandCount = 0;
-    CATEGORY_GROUP_ORDER.forEach(g => {
-      const rows = byGroup[g] || [];
-      grandTotal += rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-      grandCount += rows.length;
-    });
-    const excavationTotal = (byGroup['Excavation of Trenches'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    const concreteTotal = (byGroup['Concrete Works'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-
-    // ---- Summary ----
-    const sumAoa = [];
-    const sumCur = [];
-    sumAoa.push(['SITE EXPENSE REPORT \u2014 SUMMARY']);
-    sumAoa.push([`Site Expense Manager | Report date: ${reportDate} | ${grandCount} transactions | Data recorded through ${latestStr}`]);
-    sumAoa.push(['Controlling source: live app database. Categories assigned at entry via categories.js \u2014 no re-derivation performed in this report.']);
-    sumAoa.push([]);
-    sumAoa.push(['Category', 'Total Amount (\u20a6)', '% of Total']);
-    CATEGORY_GROUP_ORDER.forEach(g => {
-      const total = (byGroup[g] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-      sumAoa.push([g, total, grandTotal > 0 ? total / grandTotal : 0]);
-      sumCur.push([sumAoa.length, 2]);
-    });
-    sumAoa.push([]);
-    sumAoa.push(['EXCAVATION / FOUNDATION SUBTOTAL (CONTROL)']);
-    sumAoa.push(['Excavation of Trenches + Concrete Works (includes column base work & materials)', '', excavationTotal + concreteTotal]);
-    sumCur.push([sumAoa.length, 3]);
-    sumAoa.push([]);
-    sumAoa.push(['GRAND TOTAL', grandTotal]);
-    sumCur.push([sumAoa.length, 2]);
-
-    const sumWs = XLSX.utils.aoa_to_sheet(sumAoa);
-    sumWs['!cols'] = [{ wch: 45 }, { wch: 18 }, { wch: 12 }];
-    setCurrency(sumWs, sumCur);
-    // percentage column formatting
-    for (let i = 5; i <= 4 + CATEGORY_GROUP_ORDER.length; i++) {
-      const ref = XLSX.utils.encode_cell({ r: i - 1, c: 2 });
-      if (sumWs[ref]) sumWs[ref].z = '0.0%';
+    if (!dryRun) {
+      sheet.getRange(i + 1, catCol + 1).setValue(guess.category);
     }
-    XLSX.utils.book_append_sheet(wb, sumWs, 'Summary');
-
-    // ---- By Period ----
-    const periods = {};
-    CATEGORY_GROUP_ORDER.forEach(g => {
-      (byGroup[g] || []).forEach(e => {
-        const key = periodKey(e.Date);
-        periods[key] = periods[key] || {};
-        periods[key][g] = (periods[key][g] || 0) + (Number(e.Amount) || 0);
-      });
-    });
-    const sortedKeys = Object.keys(periods).sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
-    const bpAoa = [];
-    const bpCur = [];
-    bpAoa.push(['SITE EXPENSES \u2014 BY PERIOD']);
-    bpAoa.push([]);
-    bpAoa.push(['Period', ...CATEGORY_GROUP_ORDER, 'Total']);
-    const periodTotals = {};
-    let grand = 0;
-    sortedKeys.forEach(key => {
-      let rowTotal = 0;
-      const row = [key];
-      CATEGORY_GROUP_ORDER.forEach(g => {
-        const v = (periods[key] && periods[key][g]) || 0;
-        row.push(v);
-        rowTotal += v;
-        periodTotals[g] = (periodTotals[g] || 0) + v;
-      });
-      row.push(rowTotal);
-      grand += rowTotal;
-      bpAoa.push(row);
-      for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) bpCur.push([bpAoa.length, c]);
-    });
-    const totalRow = ['TOTAL', ...CATEGORY_GROUP_ORDER.map(g => periodTotals[g] || 0), grand];
-    bpAoa.push(totalRow);
-    for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) bpCur.push([bpAoa.length, c]);
-    const bpWs = XLSX.utils.aoa_to_sheet(bpAoa);
-    bpWs['!cols'] = [{ wch: 15 }, ...CATEGORY_GROUP_ORDER.map(() => ({ wch: 19 })), { wch: 19 }];
-    setCurrency(bpWs, bpCur);
-    XLSX.utils.book_append_sheet(wb, bpWs, 'By Period');
-
-    // ---- Block Production Log (from BlockProduction sheet entries) ----
-    const logAoa = [];
-    logAoa.push(['BLOCK PRODUCTION LOG']);
-    logAoa.push([`Production records in source ledger | Report date: ${reportDate}`]);
-    logAoa.push(['S/N', 'Date', 'Cement Bags', 'Blocks Produced']);
-    bpEntries.slice().sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date)).forEach((e, i) => {
-      logAoa.push([i + 1, fmtDate(e.Date), Number(e['Cement (Bags)']) || 0, Number(e['Blocks Produced']) || 0]);
-    });
-    const logWs = XLSX.utils.aoa_to_sheet(logAoa);
-    logWs['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
-    XLSX.utils.book_append_sheet(wb, logWs, 'Block Production Log');
-
-    // ---- Block Production Summary ----
-    const totalBags = bpEntries.reduce((s, e) => s + (Number(e['Cement (Bags)']) || 0), 0);
-    const totalBlocks = bpEntries.reduce((s, e) => s + (Number(e['Blocks Produced']) || 0), 0);
-    const avgPerBag = totalBags > 0 ? totalBlocks / totalBags : 0;
-    const bpsAoa = [
-      ['BLOCK PRODUCTION SUMMARY'],
-      [`Production analysis from recorded Block Production transactions | Report date: ${reportDate}`],
-      ['Metric', 'Value', 'Unit', 'Remarks'],
-      ['Production Batches', bpEntries.length, 'Batches', 'Recorded production entries'],
-      ['Total Cement Used', totalBags, 'Bags', 'From production log'],
-      ['Total Blocks Produced', totalBlocks, 'Blocks', 'From production log'],
-      ['Average Blocks per Bag', Math.round(avgPerBag * 100) / 100, 'Blocks/Bag', 'Weighted average']
-    ];
-    const bpsWs = XLSX.utils.aoa_to_sheet(bpsAoa);
-    bpsWs['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
-    XLSX.utils.book_append_sheet(wb, bpsWs, 'Block Production Summary');
-
-    // ---- Sand Purchase Detail (Sharp Sand / plaster Sand leaf categories only) ----
-    const sandRows = (byGroup['Block Production'] || []).filter(e => e.Category === 'Sharp Sand' || e.Category === 'plaster Sand');
-    const spAoa = [
-      ['SAND PURCHASE DETAIL \u2014 BLOCK PRODUCTION'],
-      ['All entries below are taken from the Sharp Sand / plaster Sand transactions in Block Production.'],
-      ['Date', 'Sand Type', 'No. of Trips', 'Original Description', 'Amount (\u20a6)', 'Payment Method']
-    ];
-    const spCur = [];
-    sandRows.forEach(e => {
-      const desc = e.Description || '';
-      const tripMatch = desc.match(/(\d+)\s*trip/i);
-      const trips = tripMatch ? Number(tripMatch[1]) : 1;
-      const sandType = /plaster/i.test(desc) || e.Category === 'plaster Sand' ? 'Plaster Sand' : 'Sharp Sand';
-      spAoa.push([fmtDate(e.Date), sandType, trips, desc, Number(e.Amount) || 0, e['Payment Method'] || '']);
-      spCur.push([spAoa.length, 5]);
-    });
-    const spWs = XLSX.utils.aoa_to_sheet(spAoa);
-    spWs['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 32 }, { wch: 14 }, { wch: 16 }];
-    setCurrency(spWs, spCur);
-    XLSX.utils.book_append_sheet(wb, spWs, 'Sand Purchase Detail');
-
-    // ---- One detail sheet per category group ----
-    CATEGORY_GROUP_ORDER.forEach(g => {
-      const rows = byGroup[g] || [];
-      const subtitle = `Site Expense Manager | Detailed expense record | Report date: ${reportDate} | Data through ${latestStr}`;
-      const ws = buildDetailSheetAoa(g.toUpperCase(), subtitle, rows);
-      XLSX.utils.book_append_sheet(wb, ws, sheetSafeName(g));
-    });
-
-    // ---- Production of Blocks / Block Production Expenses split ----
-    const { autoLog, manual } = blockProductionSplit();
-    const pobWs = buildDetailSheetAoa(
-      'PRODUCTION OF BLOCKS',
-      'Actual block production records, including Block Moulding Labour. This is one component of the total Block Production cost.',
-      autoLog
-    );
-    XLSX.utils.book_append_sheet(wb, pobWs, 'Production of Blocks');
-
-    const bpeWs = buildDetailSheetAoa(
-      'BLOCK PRODUCTION EXPENSES',
-      'Supporting block-production expenses from the app export. This is the second component of the total Block Production cost.',
-      manual
-    );
-    XLSX.utils.book_append_sheet(wb, bpeWs, 'Block Production Expenses');
-
-    // ---- Concrete Works Breakdown ----
-    const cb = concreteBreakdown();
-    const cbAoa = [['CONCRETE WORKS BREAKDOWN'], ['What makes up the Concrete Works total, by component.'], [],
-      ['Component', 'Transactions', 'Amount (\u20a6)', '% of Concrete Works']];
-    const cbCur = [];
-    cb.list.forEach(r => { cbAoa.push([r.name, r.count, r.total, r.pct]); cbCur.push([cbAoa.length, 3]); });
-    cbAoa.push(['TOTAL CONCRETE WORKS', cb.count, cb.total, cb.total > 0 ? 1 : 0]);
-    cbCur.push([cbAoa.length, 3]);
-    const cbWs = XLSX.utils.aoa_to_sheet(cbAoa);
-    cbWs['!cols'] = [{ wch: 34 }, { wch: 14 }, { wch: 18 }, { wch: 20 }];
-    setCurrency(cbWs, cbCur);
-    for (let r = 5; r <= cbAoa.length; r++) {
-      const ref = XLSX.utils.encode_cell({ r: r - 1, c: 3 });
-      if (cbWs[ref]) cbWs[ref].z = '0.0%';
-    }
-    XLSX.utils.book_append_sheet(wb, cbWs, 'Concrete Works Breakdown');
-
-    // ---- Sand Breakdown + Sand Detail (own sheets) ----
-    const sb = sandBreakdown();
-    const sbAoa = [['SAND BREAKDOWN'], ['Sources: standalone sand from expense imports and block-production sand.'], [],
-      ['Sand Type', 'Transactions', 'Quantity (trips)', 'Amount (\u20a6)', '% of Sand']];
-    const sbCur = [];
-    sb.byType.forEach(r => { sbAoa.push([r.name, r.count, r.qty, r.total, r.pct]); sbCur.push([sbAoa.length, 4]); });
-    sbAoa.push(['TOTAL SAND', sb.count, sb.byType.reduce((s, r) => s + r.qty, 0), sb.total, sb.total > 0 ? 1 : 0]);
-    sbCur.push([sbAoa.length, 4]);
-    const pctFrom = 5, pctTo = sbAoa.length;
-    sbAoa.push([]);
-    sbAoa.push(['By Source', 'Transactions', '', 'Amount (\u20a6)']);
-    sb.bySource.forEach(r => { sbAoa.push([r.name, r.count, '', r.total]); sbCur.push([sbAoa.length, 4]); });
-    const sbWs = XLSX.utils.aoa_to_sheet(sbAoa);
-    sbWs['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 12 }];
-    setCurrency(sbWs, sbCur);
-    for (let r = pctFrom; r <= pctTo; r++) {
-      const ref = XLSX.utils.encode_cell({ r: r - 1, c: 4 });
-      if (sbWs[ref]) sbWs[ref].z = '0.0%';
-    }
-    XLSX.utils.book_append_sheet(wb, sbWs, 'Sand Breakdown');
-
-    const sdAoa = [['SAND DETAIL'], [], ['Date', 'Sand Type', 'Description', 'Source', 'Quantity', 'Unit', 'Vendor', 'Amount (\u20a6)', 'Payment Method']];
-    const sdCur = [];
-    sandEntries.forEach(e => {
-      sdAoa.push([fmtDate(e.Date), sandTypeOf(e), e.Description || '', e.Origin || '', Number(e.Quantity) || '', e.Unit || '', e.Vendor || '', Number(e.Amount) || 0, e['Payment Method'] || '']);
-      sdCur.push([sdAoa.length, 8]);
-    });
-    sdAoa.push(['', '', '', '', '', '', 'TOTAL', sb.total, '']);
-    sdCur.push([sdAoa.length, 8]);
-    const sdWs = XLSX.utils.aoa_to_sheet(sdAoa);
-    sdWs['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 40 }, { wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 16 }];
-    setCurrency(sdWs, sdCur);
-    XLSX.utils.book_append_sheet(wb, sdWs, 'Sand Detail');
-
-    // ---- Excavation Breakdown Summary ----
-    const excCount = (byGroup['Excavation of Trenches'] || []).length;
-    const concCount = (byGroup['Concrete Works'] || []).length;
-    const ebsAoa = [
-      ['EXCAVATION / FOUNDATION WORK BREAKDOWN SUMMARY'],
-      [],
-      ['Detailed Sheet', 'Transactions', 'Amount (\u20a6)'],
-      ['Excavation of Trenches', excCount, excavationTotal],
-      ['Concrete Works (incl. column base work & materials)', concCount, concreteTotal],
-      ['TOTAL', excCount + concCount, excavationTotal + concreteTotal]
-    ];
-    const ebsWs = XLSX.utils.aoa_to_sheet(ebsAoa);
-    ebsWs['!cols'] = [{ wch: 50 }, { wch: 14 }, { wch: 16 }];
-    setCurrency(ebsWs, [[4, 3], [5, 3], [6, 3]]);
-    XLSX.utils.book_append_sheet(wb, ebsWs, 'Excavation Breakdown Summary');
-
-    XLSX.writeFile(wb, 'Site_Expense_Final_Report_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   }
 
-  // ---------------------------------------------------------------
-  // Fix Historical Categories (Admin only) — preview/apply flow for
-  // autoRecategorize on the backend.
-  // ---------------------------------------------------------------
-  function initRecategorizeCard() {
-    const card = document.getElementById('recategorizeCard');
-    card.style.display = 'block';
+  if (!dryRun && matches.length) {
+    logAudit(session.username, 'autoRecategorize', `Moved ${matches.length} expenses out of "${fromCategory}" (${matches.map(m => m.newCategory).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`);
+  }
 
-    // Offer every category that actually has expenses in it as a
-    // possible "from" bucket — not just "Excavation of Trenches" —
-    // since the same historical-blanket-category problem could exist
-    // elsewhere (e.g. everything once dumped under "Other Expenses").
-    const sel = document.getElementById('recatFromCategory');
-    const candidateCategories = CATEGORY_FLAT.filter(c => allExpenses.some(e => e.Category === c));
-    sel.innerHTML = candidateCategories.map(c => `<option value="${c}">${c}</option>`).join('');
-    if (candidateCategories.includes('Excavation of Trenches')) sel.value = 'Excavation of Trenches';
+  // Summary grouped by destination category, so the preview reads like
+  // "12 items -> Column Base (₦840,000)" rather than a flat list.
+  const byNewCategory = {};
+  matches.forEach(m => {
+    if (!byNewCategory[m.newCategory]) byNewCategory[m.newCategory] = { count: 0, total: 0 };
+    byNewCategory[m.newCategory].count++;
+    byNewCategory[m.newCategory].total += Number(m.amount) || 0;
+  });
 
-    let lastPreview = null;
+  return {
+    dryRun: !!dryRun,
+    fromCategory: fromCategory,
+    totalMatches: matches.length,
+    byNewCategory: byNewCategory,
+    matches: matches
+  };
+}
 
-    document.getElementById('recatPreviewBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('recatPreviewBtn');
-      const applyBtn = document.getElementById('recatApplyBtn');
-      const box = document.getElementById('recatPreviewBox');
-      btn.disabled = true;
-      btn.textContent = 'Checking\u2026';
-      applyBtn.style.display = 'none';
-      try {
-        const result = await Api.autoRecategorize(sel.value, true);
-        lastPreview = result;
-        if (!result.totalMatches) {
-          box.innerHTML = `<p style="color:var(--color-ink-muted);">No expenses under "${result.fromCategory}" matched a more specific category. Nothing to change.</p>`;
-        } else {
-          const rows = Object.entries(result.byNewCategory).map(([cat, info]) =>
-            `<tr><td>${cat}</td><td>${info.count}</td><td>${money(info.total)}</td></tr>`
-          ).join('');
-          box.innerHTML = `
-            <p style="margin-bottom:10px;"><strong>${result.totalMatches}</strong> expense(s) under "${result.fromCategory}" would move:</p>
-            <div class="table-wrap">
-              <table><thead><tr><th>New Category</th><th>Count</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table>
-            </div>
-            <details style="margin-top:12px;">
-              <summary style="cursor:pointer;font-size:12.5px;color:var(--color-ink-muted);">Show individual line items</summary>
-              <div class="table-wrap" style="margin-top:8px;">
-                <table><thead><tr><th>Description</th><th>Amount</th><th>New Category</th></tr></thead><tbody>
-                  ${result.matches.map(m => `<tr><td>${m.description}</td><td>${money(m.amount)}</td><td>${m.newCategory}</td></tr>`).join('')}
-                </tbody></table>
-              </div>
-            </details>
-          `;
-          applyBtn.style.display = 'inline-flex';
+// ====================== CASH BOOK ======================
+//
+// A running-balance ledger, matching your existing Cash Book template:
+// Date, Description, Money Out (Debit), Money In (Credit), Balance.
+//
+// IMPORTANT — this is intentionally NOT sorted by date like Expenses is.
+// Your source reports list several undated rows after one dated row
+// (all part of that day's batch of spending), and the running balance
+// only makes sense read top-to-bottom in the order they were entered.
+// Re-sorting this by date would silently corrupt every balance below
+// the first out-of-order row. Balance is always recomputed fresh from
+// row order, never stored, so it's never at risk of drifting out of
+// sync with the entries themselves.
+//
+// Every Money Out (debit) line is auto-categorized via guessCategory()
+// and posted as a linked Expense — same auto-post pattern as Block
+// Production labour — so it flows into Reports/Final Report without
+// re-entry. Money In (credit) lines stay in the Cash Book only, since
+// they're not a cost.
+
+function addCashBookEntry(session, entry) {
+  if (session.role !== 'Admin') throw new Error('Only Admin can enter Cash Book transactions');
+  if (!entry || !entry.description) throw new Error('Description is required');
+
+  const moneyOut = Number(entry.moneyOut) || 0;
+  const moneyIn = Number(entry.moneyIn) || 0;
+  if (!moneyOut && !moneyIn) throw new Error('Enter an amount in Money Out or Money In');
+
+  const site = entry.site || 'ALL';
+  const dateStr = entry.date || '';
+  const entryId = 'CB-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
+
+  let category = entry.category || '';
+  let expenseId = '';
+
+  if (moneyOut > 0) {
+    if (!category) {
+      const guess = guessCategory(entry.description);
+      category = guess.category;
+    }
+    expenseId = 'EXP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss');
+    const expSheet = getSheet(SHEET_EXPENSES);
+    expSheet.appendRow([
+      expenseId, dateStr || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      site, category, entry.description, '', '', moneyOut, '', 'Cash Book Entry', '',
+      session.username, new Date(), 'Linked to ' + entryId
+    ]);
+    if (dateStr) forcePlainTextDate(expSheet, expSheet.getLastRow(), 2, dateStr);
+  }
+
+  const sheet = getSheet(SHEET_CASH_BOOK);
+  sheet.appendRow([entryId, dateStr, entry.description, moneyOut, moneyIn, category, site, expenseId, session.username, new Date().toISOString()]);
+  if (dateStr) forcePlainTextDate(sheet, sheet.getLastRow(), 2, dateStr);
+
+  logAudit(session.username, 'CASHBOOK_ENTRY', entryId + ' — ' + entry.description + (moneyOut ? ' (out ' + moneyOut + ')' : '') + (moneyIn ? ' (in ' + moneyIn + ')' : ''));
+
+  return { success: true, entryId: entryId, expenseId: expenseId, category: category };
+}
+
+// Bulk version for importing a historical Cash Book (like your uploaded
+// template) in one pass. Rows are written in the EXACT order given —
+// that order is what the running balance is computed from, so pass
+// rows in the same top-to-bottom order they appear in your source file.
+function addCashBookEntriesBulk(session, entries) {
+  if (session.role !== 'Admin') throw new Error('Only Admin can enter Cash Book transactions');
+  if (!Array.isArray(entries) || !entries.length) throw new Error('No entries provided');
+  if (entries.length > 500) throw new Error('Please import in batches of 500 or fewer rows');
+
+  const results = entries.map(entry => addCashBookEntry(session, entry));
+  logAudit(session.username, 'CASHBOOK_BULK_IMPORT', 'Imported ' + entries.length + ' Cash Book entries');
+  return { success: true, count: results.length, results: results };
+}
+
+function deleteCashBookEntry(session, entryId) {
+  if (session.role !== 'Admin') throw new Error('Only Admin can delete Cash Book transactions');
+  if (!entryId) throw new Error('entryId is required');
+
+  const sheet = getSheet(SHEET_CASH_BOOK);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const idCol = headers.indexOf('Entry ID');
+  const linkedCol = headers.indexOf('Linked Expense ID');
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idCol] === entryId) {
+      const linkedExpenseId = data[i][linkedCol];
+      sheet.deleteRow(i + 1);
+
+      // Keep the linked Expense in sync — deleting a Cash Book line
+      // without removing its auto-posted Expense would leave a
+      // dangling cost that no longer has a Cash Book source.
+      if (linkedExpenseId) {
+        const expSheet = getSheet(SHEET_EXPENSES);
+        const expData = expSheet.getDataRange().getValues();
+        const expIdCol = expData[0].indexOf('Expense ID');
+        for (let j = 1; j < expData.length; j++) {
+          if (expData[j][expIdCol] === linkedExpenseId) {
+            expSheet.deleteRow(j + 1);
+            break;
+          }
         }
-      } catch (err) {
-        showToast(err.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Preview Changes';
       }
-    });
 
-    document.getElementById('recatApplyBtn').addEventListener('click', async () => {
-      if (!lastPreview || !lastPreview.totalMatches) return;
-      const ok = confirm(`This will update the Category on ${lastPreview.totalMatches} expense(s). This can't be undone automatically. Continue?`);
-      if (!ok) return;
+      logAudit(session.username, 'CASHBOOK_DELETE', 'Deleted ' + entryId + (linkedExpenseId ? ' (and linked ' + linkedExpenseId + ')' : ''));
+      return { success: true };
+    }
+  }
+  throw new Error('Entry not found: ' + entryId);
+}
 
-      const applyBtn = document.getElementById('recatApplyBtn');
-      applyBtn.disabled = true;
-      applyBtn.textContent = 'Applying\u2026';
-      try {
-        const result = await Api.autoRecategorize(lastPreview.fromCategory, false);
-        showToast(`${result.totalMatches} expense(s) re-categorized`, 'success');
-        document.getElementById('recatPreviewBox').innerHTML = '<p style="color:var(--color-accent);">Changes applied. Reloading report\u2026</p>';
-        applyBtn.style.display = 'none';
-        // Reload everything so the Summary/By Period/detail views reflect the change immediately.
-        const [expData] = await Promise.all([Api.getExpenses()]);
-        allExpenses = expData.expenses || [];
-        groupExpenses();
-        renderSummary();
-        renderByPeriod();
-        renderBlockProductionBreakdown();
-        populateDetailSelect();
-      } catch (err) {
-        showToast(err.message, 'error');
-      } finally {
-        applyBtn.disabled = false;
-        applyBtn.textContent = 'Apply Changes';
-      }
-    });
+function getCashBook(session) {
+  if (session.role !== 'Admin') throw new Error('Access denied');
+
+  const sheet = getSheet(SHEET_CASH_BOOK);
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { entries: [], totalOut: 0, totalIn: 0, finalBalance: 0 };
+
+  const headers = rows[0];
+  const entries = rows.slice(1).map(r => rowToObject(headers, r));
+
+  // Running balance computed fresh, in sheet row order — see note above
+  // on why this must NOT be sorted by date.
+  let running = 0, totalOut = 0, totalIn = 0;
+  entries.forEach(e => {
+    const out = Number(e['Money Out']) || 0;
+    const inn = Number(e['Money In']) || 0;
+    running += (inn - out);
+    totalOut += out;
+    totalIn += inn;
+    e.Balance = running;
+  });
+
+  return { entries: entries, totalOut: totalOut, totalIn: totalIn, finalBalance: running };
+}
+
+// ====================== HELPERS ======================
+
+
+// Sand is deliberately split from the general Expenses sheet:
+// - Block-production sand/plaster sand -> BlockProductionSand, linked to BlockProduction.
+// - Standalone/other sand expenses -> OtherSandImports.
+function ensureSandImportSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  let blockSand = ss.getSheetByName(SHEET_BLOCK_PRODUCTION_SAND);
+  if (!blockSand) {
+    blockSand = ss.insertSheet(SHEET_BLOCK_PRODUCTION_SAND);
+    blockSand.appendRow([
+      'Sand Entry ID', 'Block Production Entry ID', 'Date', 'Site', 'Sand Type',
+      'Quantity/Trips', 'Rate', 'Amount', 'Payment Method', 'Source', 'Submitted By', 'Timestamp'
+    ]);
+    blockSand.setFrozenRows(1);
   }
 
-  init();
-})();
+  let otherSand = ss.getSheetByName(SHEET_OTHER_SAND);
+  if (!otherSand) {
+    otherSand = ss.insertSheet(SHEET_OTHER_SAND);
+    otherSand.appendRow([
+      'Sand Entry ID', 'Date', 'Site', 'Sand Type', 'Description',
+      'Quantity', 'Unit', 'Amount', 'Vendor', 'Payment Method', 'Source', 'Submitted By', 'Timestamp', 'Remarks'
+    ]);
+    otherSand.setFrozenRows(1);
+  }
+}
+
+function addBlockProductionSandBulk(session, sandRows) {
+  if (session.role !== 'Admin' && session.role !== 'Site Manager') throw new Error('Access denied');
+  if (!Array.isArray(sandRows) || !sandRows.length) return { success: true, count: 0 };
+  if (sandRows.length > 500) throw new Error('Please import sand in batches of 500 or fewer rows');
+
+  ensureSandImportSheets();
+  const sheet = getSheet(SHEET_BLOCK_PRODUCTION_SAND);
+  const timestamp = new Date();
+  const rows = sandRows.map((r, i) => {
+    if (!r || !r.date || !r.sandType || !(Number(r.amount) > 0)) {
+      throw new Error('Sand row ' + (i + 1) + ': date, sand type and amount are required');
+    }
+    const site = session.role === 'Admin' ? (r.site || 'ALL') : session.site;
+    if (session.role === 'Site Manager' && r.site && r.site !== session.site) {
+      throw new Error('Sand row ' + (i + 1) + ': site does not match your site');
+    }
+    const sandEntryId = 'SAND-BP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd-HHmmss') + '-' + i;
+    return [
+      sandEntryId,
+      r.blockProductionEntryId || '',
+      r.date,
+      site,
+      r.sandType,
+      r.quantity || '',
+      Number(r.rate) || 0,
+      Number(r.amount) || 0,
+      r.paymentMethod || 'Cash',
+      'Block Production Import',
+      session.username,
+      timestamp
+    ];
+  });
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 3, rows.length, 1).setNumberFormat('@');
+  sheet.getRange(startRow, 1, rows.length, 12).setValues(rows);
+  logAudit(session.username, 'BLOCK_PRODUCTION_SAND_IMPORT', 'Imported ' + rows.length + ' block-production sand entries');
+  return { success: true, count: rows.length };
+}
+
+// All sand records in one normalized shape, for the Final Report's Sand
+// breakdown: OtherSandImports (standalone sand from the expense import)
+// plus BlockProductionSand (sand linked to block production).
+function getSandEntries(session) {
+  ensureSandImportSheets();
+  const out = [];
+  const read = (name) => {
+    const rows = getSheet(name).getDataRange().getValues();
+    if (rows.length < 2) return [];
+    const headers = rows[0];
+    return rows.slice(1).filter(r => r.some(c => c !== '' && c !== null)).map(r => rowToObject(headers, r));
+  };
+  read(SHEET_OTHER_SAND).forEach(e => out.push({
+    'Sand Entry ID': e['Sand Entry ID'], Date: e['Date'], Site: e['Site'],
+    'Sand Type': e['Sand Type'], Description: e['Description'] || '',
+    Quantity: e['Quantity'], Unit: e['Unit'], Rate: '', Amount: Number(e['Amount']) || 0,
+    Vendor: e['Vendor'] || '', 'Payment Method': e['Payment Method'] || '',
+    Origin: 'Standalone (Expense Import)', Timestamp: e['Timestamp']
+  }));
+  read(SHEET_BLOCK_PRODUCTION_SAND).forEach(e => out.push({
+    'Sand Entry ID': e['Sand Entry ID'], Date: e['Date'], Site: e['Site'],
+    'Sand Type': e['Sand Type'], Description: '',
+    Quantity: e['Quantity/Trips'], Unit: 'trips', Rate: e['Rate'], Amount: Number(e['Amount']) || 0,
+    Vendor: '', 'Payment Method': e['Payment Method'] || '',
+    Origin: 'Block Production', Timestamp: e['Timestamp']
+  }));
+  const rows = session.role === 'Site Manager' ? out.filter(e => e.Site === session.site) : out;
+  rows.sort((a, b) => String(a.Date).localeCompare(String(b.Date)));
+  return { entries: rows };
+}
+
+function getSheet(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(name);
+  if (!sheet) throw new Error('Sheet not found: ' + name + '. Run setupSheets() first.');
+  return sheet;
+}
+
+// Forces a specific cell to store its value as literal plain text,
+// bypassing Google Sheets' automatic "this looks like a date, let me
+// convert it" behavior entirely. Without this, a written string like
+// "2026-07-24" gets silently turned into a real Date value using
+// whatever timezone the SHEET happens to be set to — which may not
+// match the Apps Script project's own timezone setting used when
+// reading it back out. Two different timezones touching the same date
+// is exactly what causes the "off by one day" bug. Storing as plain
+// text sidesteps the whole problem: what you type is what's stored,
+// and what's stored is exactly what gets sent to the frontend.
+function forcePlainTextDate(sheet, row, col, dateStr) {
+  const cell = sheet.getRange(row, col);
+  cell.setNumberFormat('@');
+  cell.setValue(dateStr);
+}
+
+function rowToObject(headers, row) {
+  const tz = Session.getScriptTimeZone();
+  const obj = {};
+  headers.forEach((h, i) => {
+    let val = row[i];
+    // Google Sheets returns date/datetime cells as JS Date objects. If we
+    // let those pass through to JSON.stringify as-is, they serialize to a
+    // UTC timestamp — and if the browser's timezone differs from this
+    // script's timezone (Session.getScriptTimeZone()), the date can shift
+    // by a day when the frontend displays it. Converting to a plain string
+    // here, in this script's own timezone, removes that ambiguity entirely.
+    if (val instanceof Date) {
+      const isTimestamp = /timestamp/i.test(h);
+      val = Utilities.formatDate(val, tz, isTimestamp ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd');
+    }
+    obj[h] = val;
+  });
+  return obj;
+}
+
+function formatCellDate(val) {
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return String(val);
+}
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ====================== ONE-TIME SETUP ======================
+// Run this once from the Apps Script editor (select setupSheets, click Run)
+// to create all sheets with correct headers and a starter admin user.
+
+// One-off migration for spreadsheets that were set up before the Projects
+// feature existed — adds just the Projects sheet without touching your
+// existing Users/Expenses/Sites data. Safe to run any time; it does
+// nothing if the sheet already exists.
+function addProjectsSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName(SHEET_PROJECTS)) {
+    Logger.log('Projects sheet already exists — nothing to do.');
+    return;
+  }
+  const projectsSheet = ss.insertSheet(SHEET_PROJECTS);
+  projectsSheet.appendRow(['Project ID', 'Project Name', 'Site', 'Budget', 'Start Date', 'End Date', 'Status', 'Notes']);
+  projectsSheet.setFrozenRows(1);
+  Logger.log('Projects sheet created.');
+}
+
+// One-off migration for spreadsheets that were set up before the Block
+// Production tracker existed — adds just the BlockProduction sheet
+// without touching your existing data. Safe to run any time.
+function addBlockProductionSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName(SHEET_BLOCK_PRODUCTION)) {
+    Logger.log('BlockProduction sheet already exists — nothing to do.');
+    return;
+  }
+  const bpSheet = ss.insertSheet(SHEET_BLOCK_PRODUCTION);
+  bpSheet.appendRow(['Entry ID', 'Date', 'Site', 'Cement (Bags)', 'Blocks Produced', 'Avg per Cement', 'Labour Rate/Bag', 'Labour Cost (Bag Basis)', 'Rate/Piece', 'Pieces', 'Labour Cost (Piece Basis)', 'Total Cost', 'Notes', 'Submitted By', 'Timestamp', 'Linked Expense ID']);
+  bpSheet.setFrozenRows(1);
+  Logger.log('BlockProduction sheet created.');
+}
+
+// One-off migration for spreadsheets that were set up before the Column
+// Progress tracker existed — adds just the ColumnProgress sheet without
+// touching your existing data. Safe to run any time.
+function addColumnProgressSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName(SHEET_COLUMN_PROGRESS)) {
+    Logger.log('ColumnProgress sheet already exists — nothing to do.');
+    return;
+  }
+  const cpSheet = ss.insertSheet(SHEET_COLUMN_PROGRESS);
+  cpSheet.appendRow(['Entry ID', 'Date', 'Site', 'Columns Achieved', 'Notes', 'Submitted By', 'Timestamp']);
+  cpSheet.setFrozenRows(1);
+  Logger.log('ColumnProgress sheet created.');
+}
+
+// One-off migration for spreadsheets that were set up before the Cash
+// Book existed — adds just the CashBook sheet without touching your
+// existing data. Safe to run any time.
+function addCashBookSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName(SHEET_CASH_BOOK)) {
+    Logger.log('CashBook sheet already exists — nothing to do.');
+    return;
+  }
+  const sheet = ss.insertSheet(SHEET_CASH_BOOK);
+  sheet.appendRow(['Entry ID', 'Date', 'Description', 'Money Out', 'Money In', 'Category', 'Site', 'Linked Expense ID', 'Submitted By', 'Timestamp']);
+  sheet.setFrozenRows(1);
+  Logger.log('CashBook sheet created.');
+}
+
+function setupSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const usersSheet = ss.getSheetByName(SHEET_USERS) || ss.insertSheet(SHEET_USERS);
+  usersSheet.clear();
+  usersSheet.appendRow(['Username', 'Password', 'Role', 'Site']);
+  usersSheet.appendRow(['king', 'ChangeMe123!', 'Admin', 'ALL']);
+  usersSheet.appendRow(['boss', 'ChangeMe123!', 'Boss', 'ALL']);
+  usersSheet.appendRow(['john', 'ChangeMe123!', 'Site Manager', 'Lekki']);
+  usersSheet.setFrozenRows(1);
+
+  const expensesSheet = ss.getSheetByName(SHEET_EXPENSES) || ss.insertSheet(SHEET_EXPENSES);
+  expensesSheet.clear();
+  expensesSheet.appendRow(['Expense ID', 'Date', 'Site', 'Category', 'Description', 'Quantity', 'Unit', 'Amount', 'Vendor', 'Payment Method', 'Receipt', 'Submitted By', 'Timestamp', 'Remarks']);
+  expensesSheet.setFrozenRows(1);
+
+  const auditSheet = ss.getSheetByName(SHEET_AUDIT) || ss.insertSheet(SHEET_AUDIT);
+  auditSheet.clear();
+  auditSheet.appendRow(['Timestamp', 'Username', 'Action', 'Details']);
+  auditSheet.setFrozenRows(1);
+
+  const sitesSheet = ss.getSheetByName(SHEET_SITES) || ss.insertSheet(SHEET_SITES);
+  sitesSheet.clear();
+  sitesSheet.appendRow(['Site Name', 'Location', 'Status']);
+  sitesSheet.appendRow(['Lekki', 'Lagos', 'Active']);
+  sitesSheet.setFrozenRows(1);
+
+  const projectsSheet = ss.getSheetByName(SHEET_PROJECTS) || ss.insertSheet(SHEET_PROJECTS);
+  projectsSheet.clear();
+  projectsSheet.appendRow(['Project ID', 'Project Name', 'Site', 'Budget', 'Start Date', 'End Date', 'Status', 'Notes']);
+  projectsSheet.setFrozenRows(1);
+
+  const bpSheet = ss.getSheetByName(SHEET_BLOCK_PRODUCTION) || ss.insertSheet(SHEET_BLOCK_PRODUCTION);
+  bpSheet.clear();
+  bpSheet.appendRow(['Entry ID', 'Date', 'Site', 'Cement (Bags)', 'Blocks Produced', 'Avg per Cement', 'Labour Rate/Bag', 'Labour Cost (Bag Basis)', 'Rate/Piece', 'Pieces', 'Labour Cost (Piece Basis)', 'Total Cost', 'Notes', 'Submitted By', 'Timestamp', 'Linked Expense ID']);
+  bpSheet.setFrozenRows(1);
+
+  const cpSheet = ss.getSheetByName(SHEET_COLUMN_PROGRESS) || ss.insertSheet(SHEET_COLUMN_PROGRESS);
+  cpSheet.clear();
+  cpSheet.appendRow(['Entry ID', 'Date', 'Site', 'Columns Achieved', 'Notes', 'Submitted By', 'Timestamp']);
+  cpSheet.setFrozenRows(1);
+
+  const cbSheet = ss.getSheetByName(SHEET_CASH_BOOK) || ss.insertSheet(SHEET_CASH_BOOK);
+  cbSheet.clear();
+  cbSheet.appendRow(['Entry ID', 'Date', 'Description', 'Money Out', 'Money In', 'Category', 'Site', 'Linked Expense ID', 'Submitted By', 'Timestamp']);
+  cbSheet.setFrozenRows(1);
+
+  // Create the two sand routing sheets if they do not already exist.
+  ensureSandImportSheets();
+
+  Logger.log('Setup complete. Default logins (CHANGE THESE PASSWORDS): king / boss / john, password: ChangeMe123!');
+}
