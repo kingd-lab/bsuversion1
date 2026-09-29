@@ -126,7 +126,7 @@
 
   function money(value) {
     return (
-      '\u20a6' +
+      '₦' +
       Number(value || 0).toLocaleString(
         undefined,
         {
@@ -137,7 +137,9 @@
   }
 
   function clean(value) {
-    return String(value == null ? '' : value)
+    return String(
+      value == null ? '' : value
+    )
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -154,13 +156,17 @@
       return value;
     }
 
-    const text = String(value).trim();
+    const text =
+      String(value).trim();
 
     if (!text) {
       return null;
     }
 
-    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const match =
+      text.match(
+        /^(\d{4})-(\d{2})-(\d{2})$/
+      );
 
     if (match) {
       return new Date(
@@ -170,16 +176,22 @@
       );
     }
 
-    const d = new Date(text);
+    const d =
+      new Date(text);
 
-    return isNaN(d.getTime()) ? null : d;
+    return isNaN(d.getTime())
+      ? null
+      : d;
   }
 
   function formatDate(value) {
-    const d = parseDate(value);
+    const d =
+      parseDate(value);
 
     if (!d) {
-      return String(value || '—');
+      return String(
+        value || '—'
+      );
     }
 
     return d.toLocaleDateString(
@@ -193,7 +205,8 @@
   }
 
   function getMonthKey(value) {
-    const d = parseDate(value);
+    const d =
+      parseDate(value);
 
     if (!d) {
       return 'Unknown';
@@ -208,57 +221,89 @@
     );
   }
 
-  function showToast(message, type) {
-    const toast = document.getElementById('toast');
+  function showToast(
+    message,
+    type
+  ) {
+    const toast =
+      document.getElementById(
+        'toast'
+      );
 
     if (!toast) {
       return;
     }
 
-    toast.textContent = message;
+    toast.textContent =
+      message;
 
     toast.className =
       'toast show ' +
       (type || '');
 
-    setTimeout(function () {
-      toast.classList.remove('show');
-    }, 3500);
+    setTimeout(
+      function () {
+        toast.classList.remove(
+          'show'
+        );
+      },
+      3500
+    );
   }
 
   function groupData() {
     groupedExpenses = {};
 
-    GROUP_ORDER.forEach(function (group) {
-      groupedExpenses[group] = [];
-    });
-
-    if (!groupedExpenses['Other Expenses']) {
-      groupedExpenses['Other Expenses'] = [];
-    }
-
-    allExpenses.forEach(function (expense) {
-      const category = String(
-        expense.Category || ''
-      ).trim();
-
-      const group =
-        GROUP_OF[category] ||
-        'Other Expenses';
-
-      if (!groupedExpenses[group]) {
+    GROUP_ORDER.forEach(
+      function (group) {
         groupedExpenses[group] = [];
       }
+    );
 
-      groupedExpenses[group].push(expense);
-    });
+    if (
+      !groupedExpenses[
+        'Other Expenses'
+      ]
+    ) {
+      groupedExpenses[
+        'Other Expenses'
+      ] = [];
+    }
 
-    Object.keys(groupedExpenses).forEach(
+    allExpenses.forEach(
+      function (expense) {
+        const category =
+          String(
+            expense.Category || ''
+          ).trim();
+
+        const group =
+          GROUP_OF[category] ||
+          'Other Expenses';
+
+        if (
+          !groupedExpenses[group]
+        ) {
+          groupedExpenses[group] = [];
+        }
+
+        groupedExpenses[group].push(
+          expense
+        );
+      }
+    );
+
+    Object.keys(
+      groupedExpenses
+    ).forEach(
       function (group) {
         groupedExpenses[group].sort(
           function (a, b) {
-            const da = parseDate(a.Date);
-            const db = parseDate(b.Date);
+            const da =
+              parseDate(a.Date);
+
+            const db =
+              parseDate(b.Date);
 
             if (!da || !db) {
               return 0;
@@ -272,11 +317,20 @@
   }
 
   function totalRows(rows) {
-    return (rows || []).reduce(
-      function (sum, row) {
+    return (
+      rows || []
+    ).reduce(
+      function (
+        sum,
+        row
+      ) {
         return (
           sum +
-          (Number(row.Amount) || 0)
+          (
+            Number(
+              row.Amount
+            ) || 0
+          )
         );
       },
       0
@@ -285,58 +339,69 @@
 
   function renderSummary() {
     const body =
-      document.getElementById('summaryRows');
+      document.getElementById(
+        'summaryRows'
+      );
 
     if (!body) {
       return;
     }
 
     const grandTotal =
-      totalRows(allExpenses);
+      totalRows(
+        allExpenses
+      );
 
     body.innerHTML =
       GROUP_ORDER
-        .map(function (group) {
-          const rows =
-            groupedExpenses[group] || [];
+        .map(
+          function (group) {
+            const rows =
+              groupedExpenses[
+                group
+              ] || [];
 
-          const total =
-            totalRows(rows);
+            const total =
+              totalRows(rows);
 
-          const pct =
-            grandTotal > 0
-              ? (total / grandTotal) * 100
-              : 0;
+            const pct =
+              grandTotal > 0
+                ? (
+                    total /
+                    grandTotal
+                  ) * 100
+                : 0;
 
-          return `
-            <tr>
-              <td>${clean(group)}</td>
-              <td>
-                <strong>${money(total)}</strong>
-              </td>
-              <td>${pct.toFixed(1)}%</td>
-            </tr>
-          `;
-        })
+            return `
+              <tr>
+                <td>
+                  ${clean(group)}
+                </td>
+
+                <td>
+                  <strong>
+                    ${money(total)}
+                  </strong>
+                </td>
+
+                <td>
+                  ${pct.toFixed(1)}%
+                </td>
+              </tr>
+            `;
+          }
+        )
         .join('');
 
     const grand =
-      document.getElementById('grandTotal');
+      document.getElementById(
+        'grandTotal'
+      );
 
     if (grand) {
       grand.textContent =
         money(grandTotal);
     }
-
-    const excavation =
-      totalRows(
-        groupedExpenses['Excavation of Trenches'] || []
-      );
-
-    const concrete =
-      totalRows(
-        groupedExpenses['Concrete Works'] || []
-      );
 
     const foundation =
       document.getElementById(
@@ -346,8 +411,16 @@
     if (foundation) {
       foundation.textContent =
         money(
-          excavation +
-          concrete
+          totalRows(
+            groupedExpenses[
+              'Excavation of Trenches'
+            ] || []
+          ) +
+          totalRows(
+            groupedExpenses[
+              'Concrete Works'
+            ] || []
+          )
         );
     }
 
@@ -362,11 +435,16 @@
       allExpenses.forEach(
         function (expense) {
           const d =
-            parseDate(expense.Date);
+            parseDate(
+              expense.Date
+            );
 
           if (
             d &&
-            (!latest || d > latest)
+            (
+              !latest ||
+              d > latest
+            )
           ) {
             latest = d;
           }
@@ -382,7 +460,8 @@
             : '—'
         ) +
         ' · generated ' +
-        new Date().toLocaleDateString();
+        new Date()
+          .toLocaleDateString();
     }
   }
 
@@ -397,101 +476,125 @@
         'byPeriodRows'
       );
 
-    if (!head || !body) {
+    if (
+      !head ||
+      !body
+    ) {
       return;
     }
 
     const periods = {};
 
-    GROUP_ORDER.forEach(function (group) {
-      (
-        groupedExpenses[group] || []
-      ).forEach(function (expense) {
-        const key =
-          getMonthKey(
-            expense.Date
-          );
+    GROUP_ORDER.forEach(
+      function (group) {
+        (
+          groupedExpenses[
+            group
+          ] || []
+        ).forEach(
+          function (expense) {
+            const key =
+              getMonthKey(
+                expense.Date
+              );
 
-        if (!periods[key]) {
-          periods[key] = {};
-        }
+            if (!periods[key]) {
+              periods[key] = {};
+            }
 
-        periods[key][group] =
-          (
-            periods[key][group] ||
-            0
-          ) +
-          (
-            Number(expense.Amount) ||
-            0
-          );
-      });
-    });
+            periods[key][group] =
+              (
+                periods[key][group] ||
+                0
+              ) +
+              (
+                Number(
+                  expense.Amount
+                ) || 0
+              );
+          }
+        );
+      }
+    );
 
     const keys =
-      Object.keys(periods)
-        .sort(function (a, b) {
-          const da =
-            new Date('1 ' + a);
-
-          const db =
-            new Date('1 ' + b);
-
-          return da - db;
-        });
+      Object.keys(
+        periods
+      ).sort(
+        function (a, b) {
+          return (
+            new Date(
+              '1 ' + a
+            ) -
+            new Date(
+              '1 ' + b
+            )
+          );
+        }
+      );
 
     head.innerHTML =
       '<th>Period</th>' +
       GROUP_ORDER
-        .map(function (group) {
-          return (
-            '<th>' +
-            clean(group) +
-            '</th>'
-          );
-        })
+        .map(
+          function (group) {
+            return (
+              '<th>' +
+              clean(group) +
+              '</th>'
+            );
+          }
+        )
         .join('') +
       '<th>Total</th>';
 
     const totals = {};
+
     let grand = 0;
+
     let html = '';
 
-    keys.forEach(function (key) {
-      let rowTotal = 0;
-
-      html +=
-        '<tr>' +
-        '<td><strong>' +
-        clean(key) +
-        '</strong></td>';
-
-      GROUP_ORDER.forEach(function (group) {
-        const amount =
-          periods[key][group] || 0;
-
-        rowTotal += amount;
-
-        totals[group] =
-          (
-            totals[group] || 0
-          ) +
-          amount;
+    keys.forEach(
+      function (key) {
+        let rowTotal = 0;
 
         html +=
-          '<td>' +
-          money(amount) +
-          '</td>';
-      });
+          '<tr>' +
+          '<td><strong>' +
+          clean(key) +
+          '</strong></td>';
 
-      grand += rowTotal;
+        GROUP_ORDER.forEach(
+          function (group) {
+            const amount =
+              periods[key][group] ||
+              0;
 
-      html +=
-        '<td><strong>' +
-        money(rowTotal) +
-        '</strong></td>' +
-        '</tr>';
-    });
+            rowTotal += amount;
+
+            totals[group] =
+              (
+                totals[group] ||
+                0
+              ) +
+              amount;
+
+            html +=
+              '<td>' +
+              money(amount) +
+              '</td>';
+          }
+        );
+
+        grand += rowTotal;
+
+        html +=
+          '<td><strong>' +
+          money(rowTotal) +
+          '</strong></td>' +
+          '</tr>';
+      }
+    );
 
     html +=
       '<tr style="font-weight:700;border-top:2px solid var(--color-border);">' +
@@ -514,7 +617,8 @@
       '</td>' +
       '</tr>';
 
-    body.innerHTML = html;
+    body.innerHTML =
+      html;
   }
 
   function renderBlockProduction() {
@@ -533,42 +637,89 @@
       ] || [];
 
     const autoRows =
-      rows.filter(function (row) {
-        return (
-          String(
-            row['Payment Method'] || ''
-          ) ===
-          'Auto (Production Log)'
-        );
-      });
+      rows.filter(
+        function (row) {
+          return (
+            String(
+              row[
+                'Payment Method'
+              ] || ''
+            ) ===
+            'Auto (Production Log)'
+          );
+        }
+      );
 
     const manualRows =
-      rows.filter(function (row) {
-        return (
-          String(
-            row['Payment Method'] || ''
-          ) !==
-          'Auto (Production Log)'
-        );
-      });
+      rows.filter(
+        function (row) {
+          return (
+            String(
+              row[
+                'Payment Method'
+              ] || ''
+            ) !==
+            'Auto (Production Log)'
+          );
+        }
+      );
 
     body.innerHTML = `
       <tr>
-        <td>Production of Blocks</td>
-        <td>${autoRows.length}</td>
-        <td>${money(totalRows(autoRows))}</td>
+        <td>
+          Production of Blocks
+        </td>
+
+        <td>
+          ${autoRows.length}
+        </td>
+
+        <td>
+          ${money(
+            totalRows(
+              autoRows
+            )
+          )}
+        </td>
       </tr>
 
       <tr>
-        <td>Block Production Expenses</td>
-        <td>${manualRows.length}</td>
-        <td>${money(totalRows(manualRows))}</td>
+        <td>
+          Block Production Expenses
+        </td>
+
+        <td>
+          ${manualRows.length}
+        </td>
+
+        <td>
+          ${money(
+            totalRows(
+              manualRows
+            )
+          )}
+        </td>
       </tr>
 
-      <tr style="font-weight:700;border-top:2px solid var(--color-border);">
-        <td>TOTAL</td>
-        <td>${rows.length}</td>
-        <td>${money(totalRows(rows))}</td>
+      <tr
+        style="
+          font-weight:700;
+          border-top:2px solid var(--color-border);
+        "
+      >
+        <td>
+          TOTAL
+        </td>
+
+        <td>
+          ${rows.length}
+        </td>
+
+        <td>
+          ${money(
+            totalRows(rows)
+          )}
+        </td>
       </tr>
     `;
   }
@@ -590,43 +741,57 @@
 
     const totals = {};
 
-    rows.forEach(function (row) {
-      const category =
-        String(
-          row.Category ||
-          'Miscellaneous'
-        ).trim();
+    rows.forEach(
+      function (row) {
+        const category =
+          String(
+            row.Category ||
+            'Miscellaneous'
+          ).trim();
 
-      if (!totals[category]) {
-        totals[category] = {
-          count: 0,
-          amount: 0
-        };
+        if (!totals[category]) {
+          totals[category] = {
+            count: 0,
+            amount: 0
+          };
+        }
+
+        totals[
+          category
+        ].count += 1;
+
+        totals[
+          category
+        ].amount +=
+          Number(
+            row.Amount
+          ) || 0;
       }
-
-      totals[category].count += 1;
-
-      totals[category].amount +=
-        Number(row.Amount) || 0;
-    });
+    );
 
     const concreteTotal =
       totalRows(rows);
 
     const categories =
-      Object.keys(totals)
-        .sort(function (a, b) {
+      Object.keys(
+        totals
+      ).sort(
+        function (a, b) {
           return (
             totals[b].amount -
             totals[a].amount
           );
-        });
+        }
+      );
 
-    if (!categories.length) {
+    if (
+      !categories.length
+    ) {
       body.innerHTML = `
         <tr>
           <td colspan="4">
-            No Concrete Works transactions found.
+            No Concrete Works
+            transactions found.
           </td>
         </tr>
       `;
@@ -636,35 +801,68 @@
 
     body.innerHTML =
       categories
-        .map(function (category) {
-          const item =
-            totals[category];
+        .map(
+          function (category) {
+            const item =
+              totals[category];
 
-          const pct =
-            concreteTotal > 0
-              ? (
-                  item.amount /
-                  concreteTotal
-                ) * 100
-              : 0;
+            const pct =
+              concreteTotal > 0
+                ? (
+                    item.amount /
+                    concreteTotal
+                  ) * 100
+                : 0;
 
-          return `
-            <tr>
-              <td>${clean(category)}</td>
-              <td>${item.count}</td>
-              <td>${money(item.amount)}</td>
-              <td>${pct.toFixed(1)}%</td>
-            </tr>
-          `;
-        })
+            return `
+              <tr>
+                <td>
+                  ${clean(category)}
+                </td>
+
+                <td>
+                  ${item.count}
+                </td>
+
+                <td>
+                  ${money(
+                    item.amount
+                  )}
+                </td>
+
+                <td>
+                  ${pct.toFixed(1)}%
+                </td>
+              </tr>
+            `;
+          }
+        )
         .join('') +
 
       `
-        <tr style="font-weight:700;border-top:2px solid var(--color-border);">
-          <td>TOTAL CONCRETE WORKS</td>
-          <td>${rows.length}</td>
-          <td>${money(concreteTotal)}</td>
-          <td>100.0%</td>
+        <tr
+          style="
+            font-weight:700;
+            border-top:2px solid var(--color-border);
+          "
+        >
+          <td>
+            TOTAL CONCRETE WORKS
+          </td>
+
+          <td>
+            ${rows.length}
+          </td>
+
+          <td>
+            ${money(
+              concreteTotal
+            )}
+          </td>
+
+          <td>
+            100.0%
+          </td>
         </tr>
       `;
   }
@@ -675,37 +873,41 @@
         row.Origin || ''
       ).toLowerCase();
 
-    if (
+    return (
       origin.indexOf(
         'block production'
       ) !== -1
-    ) {
-      return 'Block Production';
-    }
-
-    return 'Standalone / Other Sand';
+        ? 'Block Production'
+        : 'Standalone / Other Sand'
+    );
   }
 
   function getSandType(row) {
     const text =
       (
         String(
-          row['Sand Type'] || ''
+          row['Sand Type'] ||
+          ''
         ) +
         ' ' +
         String(
-          row.Description || ''
+          row.Description ||
+          ''
         )
       ).toLowerCase();
 
     if (
-      text.indexOf('plaster') !== -1
+      text.indexOf(
+        'plaster'
+      ) !== -1
     ) {
       return 'Plaster Sand';
     }
 
     if (
-      text.indexOf('sharp') !== -1
+      text.indexOf(
+        'sharp'
+      ) !== -1
     ) {
       return 'Sharp Sand';
     }
@@ -745,53 +947,95 @@
     const typeTotals = {};
     const sourceTotals = {};
 
-    sandEntries.forEach(function (row) {
-      const type =
-        getSandType(row);
+    sandEntries.forEach(
+      function (row) {
+        const type =
+          getSandType(row);
 
-      const source =
-        getSandOrigin(row);
+        const source =
+          getSandOrigin(row);
 
-      const amount =
-        Number(row.Amount) || 0;
+        const amount =
+          Number(
+            row.Amount
+          ) || 0;
 
-      const quantity =
-        Number(row.Quantity) || 0;
+        const quantity =
+          Number(
+            row.Quantity
+          ) || 0;
 
-      if (!typeTotals[type]) {
-        typeTotals[type] = {
-          count: 0,
-          quantity: 0,
-          amount: 0
-        };
+        if (
+          !typeTotals[type]
+        ) {
+          typeTotals[type] = {
+            count: 0,
+            quantity: 0,
+            amount: 0
+          };
+        }
+
+        typeTotals[
+          type
+        ].count += 1;
+
+        typeTotals[
+          type
+        ].quantity += quantity;
+
+        typeTotals[
+          type
+        ].amount += amount;
+
+        if (
+          !sourceTotals[source]
+        ) {
+          sourceTotals[source] = {
+            count: 0,
+            amount: 0
+          };
+        }
+
+        sourceTotals[
+          source
+        ].count += 1;
+
+        sourceTotals[
+          source
+        ].amount += amount;
       }
-
-      typeTotals[type].count += 1;
-      typeTotals[type].quantity +=
-        quantity;
-      typeTotals[type].amount +=
-        amount;
-
-      if (!sourceTotals[source]) {
-        sourceTotals[source] = {
-          count: 0,
-          amount: 0
-        };
-      }
-
-      sourceTotals[source].count += 1;
-      sourceTotals[source].amount +=
-        amount;
-    });
+    );
 
     const sandTotal =
       sandEntries.reduce(
-        function (sum, row) {
+        function (
+          sum,
+          row
+        ) {
           return (
             sum +
             (
-              Number(row.Amount) ||
-              0
+              Number(
+                row.Amount
+              ) || 0
+            )
+          );
+        },
+        0
+      );
+
+    const totalQty =
+      sandEntries.reduce(
+        function (
+          sum,
+          row
+        ) {
+          return (
+            sum +
+            (
+              Number(
+                row.Quantity
+              ) || 0
             )
           );
         },
@@ -799,102 +1043,195 @@
       );
 
     typeBody.innerHTML =
-      Object.keys(typeTotals)
-        .map(function (type) {
-          const item =
-            typeTotals[type];
+      Object.keys(
+        typeTotals
+      )
+        .map(
+          function (type) {
+            const item =
+              typeTotals[type];
 
-          const pct =
-            sandTotal > 0
-              ? (
-                  item.amount /
-                  sandTotal
-                ) * 100
-              : 0;
+            const pct =
+              sandTotal > 0
+                ? (
+                    item.amount /
+                    sandTotal
+                  ) * 100
+                : 0;
 
-          return `
-            <tr>
-              <td>${clean(type)}</td>
-              <td>${item.count}</td>
-              <td>${item.quantity || '—'}</td>
-              <td>${money(item.amount)}</td>
-              <td>${pct.toFixed(1)}%</td>
-            </tr>
-          `;
-        })
+            return `
+              <tr>
+                <td>
+                  ${clean(type)}
+                </td>
+
+                <td>
+                  ${item.count}
+                </td>
+
+                <td>
+                  ${
+                    item.quantity ||
+                    '—'
+                  }
+                </td>
+
+                <td>
+                  ${money(
+                    item.amount
+                  )}
+                </td>
+
+                <td>
+                  ${pct.toFixed(1)}%
+                </td>
+              </tr>
+            `;
+          }
+        )
         .join('') +
 
       `
-        <tr style="font-weight:700;border-top:2px solid var(--color-border);">
-          <td>TOTAL SAND</td>
-          <td>${sandEntries.length}</td>
-          <td>${
-            sandEntries.reduce(
-              function (sum, row) {
-                return (
-                  sum +
-                  (
-                    Number(row.Quantity) ||
-                    0
-                  )
-                );
-              },
-              0
-            ) || '—'
-          }</td>
-          <td>${money(sandTotal)}</td>
-          <td>100.0%</td>
+        <tr
+          style="
+            font-weight:700;
+            border-top:2px solid var(--color-border);
+          "
+        >
+          <td>
+            TOTAL SAND
+          </td>
+
+          <td>
+            ${sandEntries.length}
+          </td>
+
+          <td>
+            ${
+              totalQty ||
+              '—'
+            }
+          </td>
+
+          <td>
+            ${money(
+              sandTotal
+            )}
+          </td>
+
+          <td>
+            100.0%
+          </td>
         </tr>
       `;
 
     sourceBody.innerHTML =
-      Object.keys(sourceTotals)
-        .map(function (source) {
-          return `
-            <tr>
-              <td>${clean(source)}</td>
-              <td>${sourceTotals[source].count}</td>
-              <td>${money(sourceTotals[source].amount)}</td>
-            </tr>
-          `;
-        })
+      Object.keys(
+        sourceTotals
+      )
+        .map(
+          function (source) {
+            return `
+              <tr>
+                <td>
+                  ${clean(source)}
+                </td>
+
+                <td>
+                  ${
+                    sourceTotals[
+                      source
+                    ].count
+                  }
+                </td>
+
+                <td>
+                  ${money(
+                    sourceTotals[
+                      source
+                    ].amount
+                  )}
+                </td>
+              </tr>
+            `;
+          }
+        )
         .join('');
 
     detailBody.innerHTML =
       sandEntries
         .slice()
-        .sort(function (a, b) {
-          const da =
-            parseDate(a.Date);
+        .sort(
+          function (a, b) {
+            const da =
+              parseDate(
+                a.Date
+              );
 
-          const db =
-            parseDate(b.Date);
+            const db =
+              parseDate(
+                b.Date
+              );
 
-          return (
-            (
-              da
-                ? da.getTime()
-                : 0
-            ) -
-            (
-              db
-                ? db.getTime()
-                : 0
-            )
-          );
-        })
-        .map(function (row) {
-          return `
-            <tr>
-              <td>${formatDate(row.Date)}</td>
-              <td>${clean(getSandType(row))}</td>
-              <td>${clean(row.Description || '')}</td>
-              <td>${clean(getSandOrigin(row))}</td>
-              <td>${clean(row.Quantity || '—')}</td>
-              <td>${money(row.Amount)}</td>
-            </tr>
-          `;
-        })
+            return (
+              (
+                da
+                  ? da.getTime()
+                  : 0
+              ) -
+              (
+                db
+                  ? db.getTime()
+                  : 0
+              )
+            );
+          }
+        )
+        .map(
+          function (row) {
+            return `
+              <tr>
+                <td>
+                  ${formatDate(
+                    row.Date
+                  )}
+                </td>
+
+                <td>
+                  ${clean(
+                    getSandType(row)
+                  )}
+                </td>
+
+                <td>
+                  ${clean(
+                    row.Description ||
+                    ''
+                  )}
+                </td>
+
+                <td>
+                  ${clean(
+                    getSandOrigin(row)
+                  )}
+                </td>
+
+                <td>
+                  ${clean(
+                    row.Quantity ||
+                    '—'
+                  )}
+                </td>
+
+                <td>
+                  ${money(
+                    row.Amount
+                  )}
+                </td>
+              </tr>
+            `;
+          }
+        )
         .join('');
 
     if (note) {
@@ -902,20 +1239,21 @@
         sandEntries.filter(
           function (row) {
             return (
-              getSandOrigin(row) ===
+              getSandOrigin(
+                row
+              ) ===
               'Block Production'
             );
           }
         ).length;
 
-      const otherCount =
-        sandEntries.length -
-        blockCount;
-
       note.textContent =
         blockCount +
         ' block-production sand transactions · ' +
-        otherCount +
+        (
+          sandEntries.length -
+          blockCount
+        ) +
         ' other/standalone sand transactions';
     }
   }
@@ -946,49 +1284,111 @@
 
     select.innerHTML =
       GROUP_ORDER
-        .map(function (group) {
-          return `
-            <option value="${clean(group)}">
-              ${clean(group)}
-            </option>
-          `;
-        })
+        .map(
+          function (group) {
+            return `
+              <option
+                value="${clean(group)}"
+              >
+                ${clean(group)}
+              </option>
+            `;
+          }
+        )
         .join('');
 
     function renderGroup(group) {
       const rows =
-        groupedExpenses[group] ||
-        [];
+        groupedExpenses[
+          group
+        ] || [];
 
       if (!rows.length) {
         body.innerHTML = '';
-        empty.style.display = 'block';
+
+        empty.style.display =
+          'block';
+
         return;
       }
 
-      empty.style.display = 'none';
+      empty.style.display =
+        'none';
 
       body.innerHTML =
         rows
-          .map(function (row) {
-            return `
-              <tr>
-                <td>${formatDate(row.Date)}</td>
-                <td>${clean(row.Category)}</td>
-                <td>${clean(row.Description || '')}</td>
-                <td>${clean(row.Vendor || '—')}</td>
-                <td>${money(row.Amount)}</td>
-                <td>${clean(row['Payment Method'] || '—')}</td>
-              </tr>
-            `;
-          })
+          .map(
+            function (row) {
+              return `
+                <tr>
+
+                  <td>
+                    ${formatDate(
+                      row.Date
+                    )}
+                  </td>
+
+                  <td>
+                    ${clean(
+                      row.Category
+                    )}
+                  </td>
+
+                  <td>
+                    ${clean(
+                      row.Description ||
+                      ''
+                    )}
+                  </td>
+
+                  <td>
+                    ${clean(
+                      row.Vendor ||
+                      '—'
+                    )}
+                  </td>
+
+                  <td>
+                    ${money(
+                      row.Amount
+                    )}
+                  </td>
+
+                  <td>
+                    ${clean(
+                      row[
+                        'Payment Method'
+                      ] ||
+                      '—'
+                    )}
+                  </td>
+
+                </tr>
+              `;
+            }
+          )
           .join('') +
 
         `
-          <tr style="font-weight:700;border-top:2px solid var(--color-border);">
-            <td colspan="4">TOTAL</td>
-            <td>${money(totalRows(rows))}</td>
+          <tr
+            style="
+              font-weight:700;
+              border-top:2px solid var(--color-border);
+            "
+          >
+
+            <td colspan="4">
+              TOTAL
+            </td>
+
+            <td>
+              ${money(
+                totalRows(rows)
+              )}
+            </td>
+
             <td></td>
+
           </tr>
         `;
     }
@@ -1002,7 +1402,9 @@
       }
     );
 
-    if (GROUP_ORDER.length) {
+    if (
+      GROUP_ORDER.length
+    ) {
       renderGroup(
         GROUP_ORDER[0]
       );
@@ -1015,13 +1417,37 @@
         'downloadExcelBtn'
       );
 
-    if (!button) {
-      return;
-    }
+    if (
+      button &&
+      !button.dataset.wired
+    ) {
+      button.addEventListener(
+        'click',
+        exportExcel
+      );
 
-    button.addEventListener(
-      'click',
-      exportExcel
+      button.dataset.wired =
+        '1';
+    }
+  }
+
+  function addSafeSheet(
+    workbook,
+    name,
+    rows
+  ) {
+    const worksheet =
+      XLSX.utils.json_to_sheet(
+        rows || []
+      );
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      name.substring(
+        0,
+        31
+      )
     );
   }
 
@@ -1042,50 +1468,42 @@
       const workbook =
         XLSX.utils.book_new();
 
-      function addSheet(name, rows) {
-        const safeRows =
-          rows || [];
+      const summary =
+        GROUP_ORDER.map(
+          function (group) {
+            const rows =
+              groupedExpenses[
+                group
+              ] || [];
 
-        const worksheet =
-          XLSX.utils.json_to_sheet(
-            safeRows
-          );
+            return {
+              Category:
+                group,
 
-        XLSX.utils.book_append_sheet(
-          workbook,
-          worksheet,
-          name.substring(0, 31)
+              Transactions:
+                rows.length,
+
+              Amount:
+                totalRows(rows)
+            };
+          }
         );
-      }
-
-      const summary = [];
-
-      GROUP_ORDER.forEach(
-        function (group) {
-          const rows =
-            groupedExpenses[group] ||
-            [];
-
-          summary.push({
-            Category: group,
-            Transactions:
-              rows.length,
-            Amount:
-              totalRows(rows)
-          });
-        }
-      );
 
       summary.push({
         Category:
           'GRAND TOTAL',
+
         Transactions:
           allExpenses.length,
+
         Amount:
-          totalRows(allExpenses)
+          totalRows(
+            allExpenses
+          )
       });
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Summary',
         summary
       );
@@ -1095,64 +1513,89 @@
       allExpenses.forEach(
         function (row) {
           const period =
-            getMonthKey(row.Date);
+            getMonthKey(
+              row.Date
+            );
 
-          if (!periods[period]) {
+          const group =
+            GROUP_OF[
+              row.Category
+            ] ||
+            'Other Expenses';
+
+          if (
+            !periods[period]
+          ) {
             periods[period] = {};
           }
 
-          const group =
-            GROUP_OF[row.Category] ||
-            'Other Expenses';
-
-          periods[period][group] =
+          periods[period][
+            group
+          ] =
             (
-              periods[period][group] ||
-              0
+              periods[period][
+                group
+              ] || 0
             ) +
             (
-              Number(row.Amount) ||
-              0
+              Number(
+                row.Amount
+              ) || 0
             );
         }
       );
 
       const byPeriod = [];
 
-      Object.keys(periods)
-        .sort(function (a, b) {
-          return (
-            new Date('1 ' + a) -
-            new Date('1 ' + b)
-          );
-        })
-        .forEach(function (period) {
-          const record = {
-            Period: period
-          };
+      Object.keys(
+        periods
+      )
+        .sort(
+          function (a, b) {
+            return (
+              new Date(
+                '1 ' + a
+              ) -
+              new Date(
+                '1 ' + b
+              )
+            );
+          }
+        )
+        .forEach(
+          function (period) {
+            const record = {
+              Period:
+                period
+            };
 
-          let total = 0;
+            let total = 0;
 
-          GROUP_ORDER.forEach(
-            function (group) {
-              const amount =
-                periods[period][group] ||
-                0;
+            GROUP_ORDER.forEach(
+              function (group) {
+                const amount =
+                  periods[period][
+                    group
+                  ] || 0;
 
-              record[group] =
-                amount;
+                record[group] =
+                  amount;
 
-              total += amount;
-            }
-          );
+                total += amount;
+              }
+            );
 
-          record.Total =
-            total;
+            record.Total =
+              total;
 
-          byPeriod.push(record);
-        });
+            byPeriod.push(
+              record
+            );
+          }
+        );
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'By Period',
         byPeriod
       );
@@ -1167,105 +1610,117 @@
             return {
               Date:
                 row.Date,
+
               Category:
                 row.Category,
+
               Description:
-                row.Description || '',
+                row.Description ||
+                '',
+
               Amount:
-                Number(row.Amount) ||
-                0,
+                Number(
+                  row.Amount
+                ) || 0,
+
               Vendor:
-                row.Vendor || '',
+                row.Vendor ||
+                '',
+
               PaymentMethod:
-                row['Payment Method'] ||
+                row[
+                  'Payment Method'
+                ] ||
                 ''
             };
           }
         );
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Block Production',
         blockProduction
       );
 
-      const blockProductionSummary = [
-        {
-          Section:
-            'Production of Blocks',
-          Transactions:
-            (
-              groupedExpenses[
-                'Block Production'
-              ] || []
-            ).filter(
-              function (row) {
-                return (
-                  String(
-                    row['Payment Method'] || ''
-                  ) ===
-                  'Auto (Production Log)'
-                );
-              }
-            ).length,
-          Amount:
-            totalRows(
-              (
-                groupedExpenses[
-                  'Block Production'
-                ] || []
-              ).filter(
-                function (row) {
-                  return (
-                    String(
-                      row['Payment Method'] || ''
-                    ) ===
-                    'Auto (Production Log)'
-                  );
-                }
-              )
-            )
-        },
-        {
-          Section:
-            'Block Production Expenses',
-          Transactions:
-            (
-              groupedExpenses[
-                'Block Production'
-              ] || []
-            ).filter(
-              function (row) {
-                return (
-                  String(
-                    row['Payment Method'] || ''
-                  ) !==
-                  'Auto (Production Log)'
-                );
-              }
-            ).length,
-          Amount:
-            totalRows(
-              (
-                groupedExpenses[
-                  'Block Production'
-                ] || []
-              ).filter(
-                function (row) {
-                  return (
-                    String(
-                      row['Payment Method'] || ''
-                    ) !==
-                    'Auto (Production Log)'
-                  );
-                }
-              )
-            )
-        }
-      ];
+      const blockAuto =
+        (
+          groupedExpenses[
+            'Block Production'
+          ] || []
+        ).filter(
+          function (row) {
+            return (
+              String(
+                row[
+                  'Payment Method'
+                ] || ''
+              ) ===
+              'Auto (Production Log)'
+            );
+          }
+        );
 
-      addSheet(
+      const blockManual =
+        (
+          groupedExpenses[
+            'Block Production'
+          ] || []
+        ).filter(
+          function (row) {
+            return (
+              String(
+                row[
+                  'Payment Method'
+                ] || ''
+              ) !==
+              'Auto (Production Log)'
+            );
+          }
+        );
+
+      addSafeSheet(
+        workbook,
         'Block Prod Summary',
-        blockProductionSummary
+        [
+          {
+            Section:
+              'Production of Blocks',
+
+            Transactions:
+              blockAuto.length,
+
+            Amount:
+              totalRows(
+                blockAuto
+              )
+          },
+
+          {
+            Section:
+              'Block Production Expenses',
+
+            Transactions:
+              blockManual.length,
+
+            Amount:
+              totalRows(
+                blockManual
+              )
+          },
+
+          {
+            Section:
+              'TOTAL',
+
+            Transactions:
+              blockProduction.length,
+
+            Amount:
+              totalRows(
+                blockProduction
+              )
+          }
+        ]
       );
 
       const concrete =
@@ -1278,28 +1733,37 @@
             return {
               Date:
                 row.Date,
+
               Category:
                 row.Category,
+
               Description:
-                row.Description || '',
+                row.Description ||
+                '',
+
               Amount:
-                Number(row.Amount) ||
-                0,
+                Number(
+                  row.Amount
+                ) || 0,
+
               Vendor:
-                row.Vendor || '',
+                row.Vendor ||
+                '',
+
               PaymentMethod:
-                row['Payment Method'] ||
+                row[
+                  'Payment Method'
+                ] ||
                 ''
             };
           }
         );
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Concrete Works',
         concrete
       );
-
-      const concreteSummary = [];
 
       const concreteTotals = {};
 
@@ -1307,37 +1771,49 @@
         groupedExpenses[
           'Concrete Works'
         ] || []
-      ).forEach(function (row) {
-        const category =
-          row.Category ||
-          'Miscellaneous';
+      ).forEach(
+        function (row) {
+          const category =
+            row.Category ||
+            'Miscellaneous';
 
-        concreteTotals[category] =
-          (
-            concreteTotals[category] ||
-            0
-          ) +
-          (
-            Number(row.Amount) ||
-            0
-          );
-      });
+          concreteTotals[
+            category
+          ] =
+            (
+              concreteTotals[
+                category
+              ] || 0
+            ) +
+            (
+              Number(
+                row.Amount
+              ) || 0
+            );
+        }
+      );
 
-      Object.keys(concreteTotals)
-        .forEach(
+      const concreteSummary =
+        Object.keys(
+          concreteTotals
+        ).map(
           function (category) {
-            concreteSummary.push({
+            return {
               Component:
                 category,
+
               Amount:
-                concreteTotals[category]
-            });
+                concreteTotals[
+                  category
+                ]
+            };
           }
         );
 
       concreteSummary.push({
         Component:
           'TOTAL CONCRETE WORKS',
+
         Amount:
           totalRows(
             groupedExpenses[
@@ -1346,7 +1822,8 @@
           )
       });
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Concrete Breakdown',
         concreteSummary
       );
@@ -1361,45 +1838,55 @@
             return {
               Date:
                 row.Date,
+
               Category:
                 row.Category,
+
               Description:
-                row.Description || '',
+                row.Description ||
+                '',
+
               Amount:
-                Number(row.Amount) ||
-                0,
+                Number(
+                  row.Amount
+                ) || 0,
+
               Vendor:
-                row.Vendor || '',
+                row.Vendor ||
+                '',
+
               PaymentMethod:
-                row['Payment Method'] ||
+                row[
+                  'Payment Method'
+                ] ||
                 ''
             };
           }
         );
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Excavation',
         excavation
       );
 
-      const excavationSummary = [
-        {
-          Section:
-            'Excavation of Trenches',
-          Transactions:
-            excavation.length,
-          Amount:
-            totalRows(
-              groupedExpenses[
-                'Excavation of Trenches'
-              ] || []
-            )
-        }
-      ];
-
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Excavation Summary',
-        excavationSummary
+        [
+          {
+            Section:
+              'Excavation of Trenches',
+
+            Transactions:
+              excavation.length,
+
+            Amount:
+              totalRows(
+                excavation
+              )
+          }
+        ]
       );
 
       const blockSand =
@@ -1407,7 +1894,9 @@
           .filter(
             function (row) {
               return (
-                getSandOrigin(row) ===
+                getSandOrigin(
+                  row
+                ) ===
                 'Block Production'
               );
             }
@@ -1417,22 +1906,33 @@
               return {
                 Date:
                   row.Date,
+
                 SandType:
-                  getSandType(row),
+                  getSandType(
+                    row
+                  ),
+
                 Description:
-                  row.Description || '',
+                  row.Description ||
+                  '',
+
                 Quantity:
-                  row.Quantity || '',
+                  row.Quantity ||
+                  '',
+
                 Amount:
-                  Number(row.Amount) ||
-                  0,
+                  Number(
+                    row.Amount
+                  ) || 0,
+
                 Source:
                   'Block Production'
               };
             }
           );
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Block Prod Sand',
         blockSand
       );
@@ -1442,7 +1942,9 @@
           .filter(
             function (row) {
               return (
-                getSandOrigin(row) !==
+                getSandOrigin(
+                  row
+                ) !==
                 'Block Production'
               );
             }
@@ -1452,112 +1954,158 @@
               return {
                 Date:
                   row.Date,
+
                 SandType:
-                  getSandType(row),
+                  getSandType(
+                    row
+                  ),
+
                 Description:
-                  row.Description || '',
+                  row.Description ||
+                  '',
+
                 Quantity:
-                  row.Quantity || '',
+                  row.Quantity ||
+                  '',
+
                 Amount:
-                  Number(row.Amount) ||
-                  0,
+                  Number(
+                    row.Amount
+                  ) || 0,
+
                 Source:
                   'Standalone / Other Sand'
               };
             }
           );
 
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Other Sand',
         otherSand
       );
 
-      const sandDetail =
+      addSafeSheet(
+        workbook,
+        'Sand Detail',
         sandEntries.map(
           function (row) {
             return {
               Date:
                 row.Date,
+
               SandType:
-                getSandType(row),
+                getSandType(
+                  row
+                ),
+
               Description:
-                row.Description || '',
+                row.Description ||
+                '',
+
               Source:
-                getSandOrigin(row),
+                getSandOrigin(
+                  row
+                ),
+
               Quantity:
-                row.Quantity || '',
+                row.Quantity ||
+                '',
+
               Amount:
-                Number(row.Amount) ||
-                0
+                Number(
+                  row.Amount
+                ) || 0
             };
           }
-        );
-
-      addSheet(
-        'Sand Detail',
-        sandDetail
+        )
       );
 
-      const sandReconciliation = [
-        {
-          Source:
-            'Block Production Sand',
-          Transactions:
-            blockSand.length,
-          Amount:
-            totalRows(blockSand)
-        },
-        {
-          Source:
-            'Standalone / Other Sand',
-          Transactions:
-            otherSand.length,
-          Amount:
-            totalRows(otherSand)
-        },
-        {
-          Source:
-            'TOTAL SAND',
-          Transactions:
-            sandEntries.length,
-          Amount:
-            totalRows(sandEntries)
-        }
-      ];
-
-      addSheet(
+      addSafeSheet(
+        workbook,
         'Sand Reconciliation',
-        sandReconciliation
+        [
+          {
+            Source:
+              'Block Production Sand',
+
+            Transactions:
+              blockSand.length,
+
+            Amount:
+              totalRows(
+                blockSand
+              )
+          },
+
+          {
+            Source:
+              'Standalone / Other Sand',
+
+            Transactions:
+              otherSand.length,
+
+            Amount:
+              totalRows(
+                otherSand
+              )
+          },
+
+          {
+            Source:
+              'TOTAL SAND',
+
+            Transactions:
+              sandEntries.length,
+
+            Amount:
+              totalRows(
+                sandEntries
+              )
+          }
+        ]
       );
 
       GROUP_ORDER.forEach(
         function (group) {
           const rows =
             (
-              groupedExpenses[group] ||
-              []
+              groupedExpenses[
+                group
+              ] || []
             ).map(
               function (row) {
                 return {
                   Date:
                     row.Date,
+
                   Category:
                     row.Category,
+
                   Description:
-                    row.Description || '',
+                    row.Description ||
+                    '',
+
                   Amount:
-                    Number(row.Amount) ||
-                    0,
+                    Number(
+                      row.Amount
+                    ) || 0,
+
                   Vendor:
-                    row.Vendor || '',
+                    row.Vendor ||
+                    '',
+
                   PaymentMethod:
-                    row['Payment Method'] ||
+                    row[
+                      'Payment Method'
+                    ] ||
                     ''
                 };
               }
             );
 
-          addSheet(
+          addSafeSheet(
+            workbook,
             group,
             rows
           );
@@ -1584,4 +2132,422 @@
         error
       );
 
-      showToast
+      showToast(
+        'Excel export failed: ' +
+        (
+          error.message ||
+          'Unknown error'
+        ),
+        'error'
+      );
+    }
+  }
+
+  async function loadReport() {
+    if (!currentUser) {
+      currentUser =
+        await Auth.requireRole(
+          [
+            'Admin',
+            'Boss'
+          ]
+        );
+    }
+
+    if (!currentUser) {
+      return;
+    }
+
+    const results =
+      await Promise.all(
+        [
+          Api.getExpenses(),
+
+          Api.getBlockProduction(),
+
+          Api.getSandEntries()
+            .catch(
+              function () {
+                return {
+                  entries: []
+                };
+              }
+            )
+        ]
+      );
+
+    allExpenses =
+      results[0] &&
+      Array.isArray(
+        results[0].expenses
+      )
+        ? results[0].expenses
+        : [];
+
+    blockProductionEntries =
+      results[1] &&
+      Array.isArray(
+        results[1].entries
+      )
+        ? results[1].entries
+        : [];
+
+    sandEntries =
+      results[2] &&
+      Array.isArray(
+        results[2].entries
+      )
+        ? results[2].entries
+        : [];
+
+    groupData();
+
+    renderSummary();
+
+    renderByPeriod();
+
+    renderBlockProduction();
+
+    renderConcrete();
+
+    renderSand();
+
+    renderCategoryDetail();
+
+    addDownloadHandler();
+
+    if (
+      currentUser.role ===
+      'Admin'
+    ) {
+      setupAdminRecategorize();
+    }
+  }
+
+  function setupAdminRecategorize() {
+    const card =
+      document.getElementById(
+        'recategorizeCard'
+      );
+
+    const select =
+      document.getElementById(
+        'recatFromCategory'
+      );
+
+    const preview =
+      document.getElementById(
+        'recatPreviewBtn'
+      );
+
+    const apply =
+      document.getElementById(
+        'recatApplyBtn'
+      );
+
+    const box =
+      document.getElementById(
+        'recatPreviewBox'
+      );
+
+    if (
+      !card ||
+      !select ||
+      !preview ||
+      !apply ||
+      !box
+    ) {
+      return;
+    }
+
+    card.style.display =
+      'block';
+
+    const possible =
+      GROUP_ORDER
+        .map(
+          function (group) {
+            return (
+              GROUPS[group] ||
+              []
+            );
+          }
+        )
+        .reduce(
+          function (
+            all,
+            categories
+          ) {
+            return all.concat(
+              categories
+            );
+          },
+          []
+        )
+        .filter(
+          function (category) {
+            return allExpenses.some(
+              function (expense) {
+                return (
+                  expense.Category ===
+                  category
+                );
+              }
+            );
+          }
+        );
+
+    select.innerHTML =
+      possible
+        .map(
+          function (category) {
+            return `
+              <option
+                value="${clean(category)}"
+              >
+                ${clean(category)}
+              </option>
+            `;
+          }
+        )
+        .join('');
+
+    if (
+      possible.indexOf(
+        'Excavation of Trenches'
+      ) !== -1
+    ) {
+      select.value =
+        'Excavation of Trenches';
+    }
+
+    preview.onclick =
+      async function () {
+        try {
+
+          if (!select.value) {
+            showToast(
+              'Select a category first.',
+              'error'
+            );
+
+            return;
+          }
+
+          const result =
+            await Api.autoRecategorize(
+              select.value,
+              true
+            );
+
+          if (
+            !result ||
+            !result.totalMatches
+          ) {
+            box.innerHTML =
+              '<p>No new historical category matches found.</p>';
+
+            apply.style.display =
+              'none';
+
+            return;
+          }
+
+          box.innerHTML =
+            '<pre style="white-space:pre-wrap;">' +
+            clean(
+              JSON.stringify(
+                result.byNewCategory,
+                null,
+                2
+              )
+            ) +
+            '</pre>';
+
+          apply.style.display =
+            'inline-flex';
+
+        } catch (error) {
+
+          console.error(
+            'Recategorization preview error:',
+            error
+          );
+
+          showToast(
+            error.message ||
+            'Preview failed.',
+            'error'
+          );
+        }
+      };
+
+    apply.onclick =
+      async function () {
+        try {
+
+          if (
+            !window.confirm(
+              'Apply these historical category changes?'
+            )
+          ) {
+            return;
+          }
+
+          const result =
+            await Api.autoRecategorize(
+              select.value,
+              false
+            );
+
+          const count =
+            result &&
+            result.totalMatches
+              ? result.totalMatches
+              : 0;
+
+          showToast(
+            count +
+            ' transaction(s) updated.',
+            'success'
+          );
+
+          window.location.reload();
+
+        } catch (error) {
+
+          console.error(
+            'Recategorization apply error:',
+            error
+          );
+
+          showToast(
+            error.message ||
+            'Could not apply category changes.',
+            'error'
+          );
+        }
+      };
+  }
+
+  async function start() {
+    try {
+
+      currentUser =
+        await Auth.requireRole(
+          [
+            'Admin',
+            'Boss'
+          ]
+        );
+
+      if (!currentUser) {
+        return;
+      }
+
+      if (
+        typeof Layout !==
+          'undefined' &&
+        Layout.build
+      ) {
+        Layout.build(
+          'final-report.html',
+          currentUser
+        );
+      }
+
+      const template =
+        document.getElementById(
+          'pageContent'
+        );
+
+      if (
+        template &&
+        typeof Layout !==
+          'undefined' &&
+        Layout.mainMount
+      ) {
+        Layout.mainMount()
+          .innerHTML =
+          template.innerHTML;
+      }
+
+      const menuButton =
+        document.getElementById(
+          'menuBtn'
+        );
+
+      if (
+        menuButton &&
+        typeof Layout !==
+          'undefined' &&
+        Layout.toggleSidebar
+      ) {
+        menuButton.addEventListener(
+          'click',
+          Layout.toggleSidebar
+        );
+      }
+
+      await loadReport();
+
+    } catch (error) {
+
+      console.error(
+        'Final Report startup error:',
+        error
+      );
+
+      const existing =
+        document.getElementById(
+          'finalReportStartupError'
+        );
+
+      if (existing) {
+        return;
+      }
+
+      const mount =
+        document.querySelector(
+          'main'
+        ) ||
+        document.body;
+
+      const errorBox =
+        document.createElement(
+          'div'
+        );
+
+      errorBox.id =
+        'finalReportStartupError';
+
+      errorBox.style.cssText =
+        'margin:20px;' +
+        'padding:18px;' +
+        'border:1px solid #dc3545;' +
+        'border-radius:10px;' +
+        'background:#fff5f5;' +
+        'color:#842029;' +
+        'font-family:Arial,sans-serif;' +
+        'line-height:1.5;';
+
+      errorBox.innerHTML =
+        '<strong>' +
+        'Final Report failed to load.' +
+        '</strong><br><br>' +
+        clean(
+          error &&
+          error.message
+            ? error.message
+            : 'Unknown startup error.'
+        );
+
+      mount.appendChild(
+        errorBox
+      );
+    }
+  }
+
+  start();
+
+})();
