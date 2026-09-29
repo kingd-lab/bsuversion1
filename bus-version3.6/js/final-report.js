@@ -1,12 +1,16 @@
 /**
  * final-report.js — powers final-report.html (Admin & Boss only).
  *
- * Mirrors the "Benue University Project Final Report" Excel template:
- * Summary (category % + foundation-work control subtotal), By Period,
- * Block Production cost breakdown (Production of Blocks vs. Block
- * Production Expenses), and one detail sheet per category group.
- * The Excel export button builds the exact same multi-sheet workbook,
- * so the in-app view and the downloaded file always agree.
+ * Updated for the current category taxonomy:
+ * - Block Setting -> Concrete Works
+ * - Hollow Filling -> Concrete Works
+ * - Sharp Sand and Plaster Sand are kept as Block Production leaf categories
+ * - Sand reporting separates Block Production sand from standalone / other sand
+ * - Financial totals are calculated from Expenses only; normalized sand data
+ *   is used for sand-specific reporting and is never added to grand totals again
+ *
+ * The Excel export mirrors the in-app report and includes separate sand detail
+ * sheets for Block Production and Other/Standalone Sand.
  */
 (function () {
   let currentUser = null;
@@ -30,13 +34,17 @@
   function fmtDate(v) {
     const d = parseLocalDate(v);
     if (isNaN(d)) return String(v || '\u2014');
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric'
+    });
   }
 
   function periodKey(v) {
     const d = parseLocalDate(v);
     if (isNaN(d)) return 'Unknown';
-    return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    return d.toLocaleDateString(undefined, {
+      month: 'short', year: 'numeric'
+    });
   }
 
   async function init() {
@@ -49,13 +57,16 @@
 
     try {
       const [expData, bpData, sandData] = await Promise.all([
-        Api.getExpenses(), Api.getBlockProduction(),
-        Api.getSandEntries().catch(() => null) // older backend without sand support: degrade gracefully
+        Api.getExpenses(),
+        Api.getBlockProduction(),
+        Api.getSandEntries().catch(() => null)
       ]);
+
       allExpenses = expData.expenses || [];
       bpEntries = bpData.entries || [];
       sandLoaded = !!sandData;
       sandEntries = sandData ? (sandData.entries || []) : [];
+
       groupExpenses();
       renderSummary();
       renderByPeriod();
@@ -65,6 +76,7 @@
       populateDetailSelect();
       wireDetailSelect();
       wireDownload();
+
       if (currentUser.role === 'Admin') initRecategorizeCard();
     } catch (err) {
       showToast(err.message, 'error');
@@ -73,12 +85,15 @@
 
   function groupExpenses() {
     byGroup = {};
+
     allExpenses.forEach(e => {
       const g = CATEGORY_GROUP_OF[e.Category] || 'Other Expenses';
       (byGroup[g] = byGroup[g] || []).push(e);
     });
-    // chronological within each group — this report reads like a ledger
-    Object.values(byGroup).forEach(rows => rows.sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date)));
+
+    Object.values(byGroup).forEach(rows => {
+      rows.sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date));
+    });
   }
 
   function blockProductionSplit() {
@@ -89,15 +104,20 @@
   }
 
   function renderSummary() {
-    let grandTotal = 0, grandCount = 0;
+    let grandTotal = 0;
+    let grandCount = 0;
+
     CATEGORY_GROUP_ORDER.forEach(g => {
       const rows = byGroup[g] || [];
       grandTotal += rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       grandCount += rows.length;
     });
 
-    const excavationTotal = (byGroup['Excavation of Trenches'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    const concreteTotal = (byGroup['Concrete Works'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+    const excavationTotal = (byGroup['Excavation of Trenches'] || [])
+      .reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+
+    const concreteTotal = (byGroup['Concrete Works'] || [])
+      .reduce((s, e) => s + (Number(e.Amount) || 0), 0);
 
     document.getElementById('summaryRows').innerHTML = CATEGORY_GROUP_ORDER.map(g => {
       const rows = byGroup[g] || [];
@@ -108,6 +128,7 @@
 
     document.getElementById('foundationSubtotal').textContent =
       `${money(excavationTotal + concreteTotal)} (Excavation of Trenches + Concrete Works)`;
+
     document.getElementById('grandTotal').textContent = money(grandTotal);
 
     let latestDate = null;
@@ -115,12 +136,14 @@
       const d = parseLocalDate(e.Date);
       if (!isNaN(d) && (!latestDate || d > latestDate)) latestDate = d;
     });
+
     document.getElementById('reportMeta').textContent =
-      `${grandCount} transactions \u00b7 data through ${latestDate ? fmtDate(latestDate) : '\u2014'} \u00b7 generated ${new Date().toLocaleDateString()}`;
+      `${grandCount} transactions · data through ${latestDate ? fmtDate(latestDate) : '—'} · generated ${new Date().toLocaleDateString()}`;
   }
 
   function renderByPeriod() {
-    const periods = {}; // { 'Sep 2026': { group: total } }
+    const periods = {};
+
     CATEGORY_GROUP_ORDER.forEach(g => {
       (byGroup[g] || []).forEach(e => {
         const key = periodKey(e.Date);
@@ -129,21 +152,26 @@
       });
     });
 
-    const sortedKeys = Object.keys(periods).sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
+    const sortedKeys = Object.keys(periods)
+      .sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
 
     document.getElementById('byPeriodHead').innerHTML =
-      ['Period', ...CATEGORY_GROUP_ORDER, 'Total'].map(h => `<th>${h}</th>`).join('');
+      ['Period', ...CATEGORY_GROUP_ORDER, 'Total']
+        .map(h => `<th>${h}</th>`).join('');
 
     const totals = {};
     let grand = 0;
+
     const rowsHtml = sortedKeys.map(key => {
       let rowTotal = 0;
+
       const cells = CATEGORY_GROUP_ORDER.map(g => {
         const v = (periods[key] && periods[key][g]) || 0;
         rowTotal += v;
         totals[g] = (totals[g] || 0) + v;
         return `<td>${money(v)}</td>`;
       }).join('');
+
       grand += rowTotal;
       return `<tr><td><strong>${key}</strong></td>${cells}<td><strong>${money(rowTotal)}</strong></td></tr>`;
     }).join('');
@@ -169,47 +197,80 @@
     `;
   }
 
-  // Concrete Works breakdown: one line per component category, so the
-  // report shows what makes up the Concrete Works total.
+  // ---------------- Concrete Works ----------------
+  // The updated Categories.gs places Block Setting and Hollow Filling
+  // inside CATEGORY_GROUPS['Concrete Works']. This report therefore picks
+  // them up automatically through CATEGORY_GROUP_OF and CATEGORY_GROUPS.
   function concreteBreakdown() {
     const rows = byGroup['Concrete Works'] || [];
     const by = {};
-    CATEGORY_GROUPS['Concrete Works'].forEach(c => { by[c] = { count: 0, total: 0 }; });
+
+    CATEGORY_GROUPS['Concrete Works'].forEach(c => {
+      by[c] = { count: 0, total: 0 };
+    });
+
     rows.forEach(e => {
       const k = e.Category;
       by[k] = by[k] || { count: 0, total: 0 };
       by[k].count += 1;
       by[k].total += Number(e.Amount) || 0;
     });
+
     const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    // components with activity first, biggest first; empty ones dropped
-    const list = Object.keys(by).filter(k => by[k].count > 0)
+
+    const list = Object.keys(by)
+      .filter(k => by[k].count > 0)
       .sort((a, b) => by[b].total - by[a].total)
-      .map(k => ({ name: k, count: by[k].count, total: by[k].total, pct: total > 0 ? by[k].total / total : 0 }));
+      .map(k => ({
+        name: k,
+        count: by[k].count,
+        total: by[k].total,
+        pct: total > 0 ? by[k].total / total : 0
+      }));
+
     return { list, total, count: rows.length };
   }
 
   function renderConcreteBreakdown() {
     const { list, total, count } = concreteBreakdown();
+
     const body = list.map(r =>
       `<tr><td>${r.name}</td><td>${r.count}</td><td>${money(r.total)}</td><td>${(r.pct * 100).toFixed(1)}%</td></tr>`
     ).join('') || '<tr><td colspan="4">No Concrete Works transactions yet.</td></tr>';
+
     document.getElementById('concreteRows').innerHTML = body +
-      `<tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL CONCRETE WORKS</td><td>${count}</td><td>${money(total)}</td><td>${total > 0 ? '100.0%' : '\u2014'}</td></tr>`;
+      `<tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL CONCRETE WORKS</td><td>${count}</td><td>${money(total)}</td><td>${total > 0 ? '100.0%' : '—'}</td></tr>`;
   }
 
-  // ---------------- Sand (own sheet + breakdown) ----------------
+  // ---------------- Sand ----------------
+  // IMPORTANT: normalized sand entries are reporting/index rows only.
+  // Financial totals are calculated from Expenses and are not increased here.
   function sandTypeOf(e) {
-    const t = ((e['Sand Type'] || '') + ' ' + (e.Description || '')).toLowerCase();
-    if (t.indexOf('plaster') !== -1) return 'Plaster Sand';
-    if (t.indexOf('sharp') !== -1) return 'Sharp Sand';
+    const category = String(e['Sand Type'] || e.Category || '').trim().toLowerCase();
+    const desc = String(e.Description || '').trim().toLowerCase();
+    const combined = category + ' ' + desc;
+
+    if (combined.indexOf('plaster') !== -1) return 'Plaster Sand';
+    if (combined.indexOf('sharp') !== -1) return 'Sharp Sand';
     return 'Other Sand';
+  }
+
+  function sandOriginOf(e) {
+    const origin = String(e.Origin || '').trim().toLowerCase();
+    if (origin.indexOf('block production') !== -1) return 'Block Production';
+    return 'Standalone / Other Sand';
+  }
+
+  function sandRowsByOrigin(origin) {
+    return sandEntries.filter(e => sandOriginOf(e) === origin);
   }
 
   function sandBreakdown() {
     const total = sandEntries.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+
     const group = (keyFn) => {
       const m = {};
+
       sandEntries.forEach(e => {
         const k = keyFn(e);
         m[k] = m[k] || { count: 0, qty: 0, total: 0 };
@@ -217,33 +278,57 @@
         m[k].qty += Number(e.Quantity) || 0;
         m[k].total += Number(e.Amount) || 0;
       });
-      return Object.keys(m).sort((a, b) => m[b].total - m[a].total)
-        .map(k => ({ name: k, count: m[k].count, qty: m[k].qty, total: m[k].total, pct: total > 0 ? m[k].total / total : 0 }));
+
+      return Object.keys(m)
+        .sort((a, b) => m[b].total - m[a].total)
+        .map(k => ({
+          name: k,
+          count: m[k].count,
+          qty: m[k].qty,
+          total: m[k].total,
+          pct: total > 0 ? m[k].total / total : 0
+        }));
     };
-    return { total, count: sandEntries.length, byType: group(sandTypeOf), bySource: group(e => e.Origin || 'Other') };
+
+    return {
+      total,
+      count: sandEntries.length,
+      byType: group(sandTypeOf),
+      bySource: group(sandOriginOf)
+    };
   }
 
   function renderSandBreakdown() {
     const b = sandBreakdown();
+
     document.getElementById('sandNote').textContent = sandLoaded
-      ? `${b.count} sand transactions`
-      : 'Sand data unavailable \u2014 redeploy the updated backend (Code.gs)';
+      ? `${b.count} sand transactions · ${sandRowsByOrigin('Block Production').length} block-production · ${sandRowsByOrigin('Standalone / Other Sand').length} other/standalone`
+      : 'Sand data unavailable — redeploy the updated backend (Code.gs)';
+
     const empty = (cols) => `<tr><td colspan="${cols}">No sand transactions yet.</td></tr>`;
-    document.getElementById('sandTypeRows').innerHTML = (b.byType.length
-      ? b.byType.map(r => `<tr><td>${r.name}</td><td>${r.count}</td><td>${r.qty || '\u2014'}</td><td>${money(r.total)}</td><td>${(r.pct * 100).toFixed(1)}%</td></tr>`).join('') +
-        `<tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL SAND</td><td>${b.count}</td><td>${b.byType.reduce((s, r) => s + r.qty, 0) || '\u2014'}</td><td>${money(b.total)}</td><td>100.0%</td></tr>`
-      : empty(5));
+
+    document.getElementById('sandTypeRows').innerHTML = b.byType.length
+      ? b.byType.map(r =>
+          `<tr><td>${r.name}</td><td>${r.count}</td><td>${r.qty || '—'}</td><td>${money(r.total)}</td><td>${(r.pct * 100).toFixed(1)}%</td></tr>`
+        ).join('') +
+        `<tr style="font-weight:700;border-top:2px solid var(--color-border);"><td>TOTAL SAND</td><td>${b.count}</td><td>${b.byType.reduce((s, r) => s + r.qty, 0) || '—'}</td><td>${money(b.total)}</td><td>100.0%</td></tr>`
+      : empty(5);
+
     document.getElementById('sandSourceRows').innerHTML = b.bySource.length
       ? b.bySource.map(r => `<tr><td>${r.name}</td><td>${r.count}</td><td>${money(r.total)}</td></tr>`).join('')
       : empty(3);
+
     document.getElementById('sandDetailRows').innerHTML = sandEntries.length
-      ? sandEntries.map(e => `<tr><td>${fmtDate(e.Date)}</td><td>${sandTypeOf(e)}</td><td>${e.Description || '\u2014'}</td><td>${e.Origin || ''}</td><td>${e.Quantity || '\u2014'}</td><td><strong>${money(e.Amount)}</strong></td></tr>`).join('')
+      ? sandEntries.map(e =>
+          `<tr><td>${fmtDate(e.Date)}</td><td>${sandTypeOf(e)}</td><td>${e.Description || '—'}</td><td>${sandOriginOf(e)}</td><td>${e.Quantity || '—'}</td><td><strong>${money(e.Amount)}</strong></td></tr>`
+        ).join('')
       : empty(6);
   }
 
   function populateDetailSelect() {
     const sel = document.getElementById('detailGroupSelect');
-    sel.innerHTML = CATEGORY_GROUP_ORDER.map(g => `<option value="${g}">${g}</option>`).join('');
+    sel.innerHTML = CATEGORY_GROUP_ORDER
+      .map(g => `<option value="${g}">${g}</option>`).join('');
     renderDetail(sel.value);
   }
 
@@ -251,20 +336,23 @@
     const rows = byGroup[group] || [];
     const tbody = document.getElementById('detailRows');
     const empty = document.getElementById('detailEmpty');
+
     if (!rows.length) {
       tbody.innerHTML = '';
       empty.style.display = 'block';
       return;
     }
+
     empty.style.display = 'none';
+
     tbody.innerHTML = rows.map(e => `
       <tr>
         <td>${fmtDate(e.Date)}</td>
         <td><span class="badge">${e.Category}</span></td>
         <td>${e.Description || ''}</td>
-        <td>${e.Vendor || '\u2014'}</td>
+        <td>${e.Vendor || '—'}</td>
         <td><strong>${money(e.Amount)}</strong></td>
-        <td>${e['Payment Method'] || '\u2014'}</td>
+        <td>${e['Payment Method'] || '—'}</td>
       </tr>
     `).join('') + `
       <tr style="font-weight:700;border-top:2px solid var(--color-border);">
@@ -276,12 +364,12 @@
   }
 
   function wireDetailSelect() {
-    document.getElementById('detailGroupSelect').addEventListener('change', (e) => renderDetail(e.target.value));
+    document.getElementById('detailGroupSelect')
+      .addEventListener('change', e => renderDetail(e.target.value));
   }
 
   // ---------------------------------------------------------------
-  // Excel export — builds the exact same multi-sheet workbook as the
-  // Benue University Project Final Report template.
+  // Excel export
   // ---------------------------------------------------------------
   function wireDownload() {
     document.getElementById('downloadExcelBtn').addEventListener('click', () => {
@@ -310,26 +398,79 @@
   function buildDetailSheetAoa(title, subtitle, rows) {
     const aoa = [];
     const currency = [];
+
     aoa.push([title]);
     aoa.push([subtitle]);
     aoa.push([]);
     aoa.push(['Date', 'Detail Category', 'Description', 'Vendor', 'Amount (\u20a6)', 'Payment Method']);
+
     rows.forEach(e => {
-      aoa.push([fmtDate(e.Date), e.Category, e.Description || '', e.Vendor || '', Number(e.Amount) || 0, e['Payment Method'] || '']);
+      aoa.push([
+        fmtDate(e.Date),
+        e.Category,
+        e.Description || '',
+        e.Vendor || '',
+        Number(e.Amount) || 0,
+        e['Payment Method'] || ''
+      ]);
       currency.push([aoa.length, 5]);
     });
+
     const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
     aoa.push(['', '', '', 'TOTAL', total, '']);
     currency.push([aoa.length, 5]);
+
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 55 }, { wch: 24 }, { wch: 16 }, { wch: 18 }];
+    ws['!cols'] = [
+      { wch: 16 }, { wch: 24 }, { wch: 55 },
+      { wch: 24 }, { wch: 16 }, { wch: 18 }
+    ];
+    setCurrency(ws, currency);
+    return ws;
+  }
+
+  function buildSandDetailSheetAoa(title, subtitle, rows) {
+    const aoa = [
+      [title],
+      [subtitle],
+      [],
+      ['Date', 'Sand Type', 'Description', 'Source', 'Quantity', 'Unit', 'Vendor', 'Amount (\u20a6)', 'Payment Method']
+    ];
+    const currency = [];
+
+    rows.slice().sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date)).forEach(e => {
+      aoa.push([
+        fmtDate(e.Date),
+        sandTypeOf(e),
+        e.Description || '',
+        sandOriginOf(e),
+        Number(e.Quantity) || '',
+        e.Unit || '',
+        e.Vendor || '',
+        Number(e.Amount) || 0,
+        e['Payment Method'] || ''
+      ]);
+      currency.push([aoa.length, 8]);
+    });
+
+    const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+    aoa.push(['', '', '', '', '', '', 'TOTAL', total, '']);
+    currency.push([aoa.length, 8]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      { wch: 16 }, { wch: 16 }, { wch: 40 }, { wch: 28 },
+      { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 16 }
+    ];
     setCurrency(ws, currency);
     return ws;
   }
 
   function buildAndDownloadWorkbook() {
     const wb = XLSX.utils.book_new();
-    const reportDate = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    const reportDate = new Date().toLocaleDateString(undefined, {
+      day: 'numeric', month: 'long', year: 'numeric'
+    });
 
     let latestDate = null;
     allExpenses.forEach(e => {
@@ -338,48 +479,60 @@
     });
     const latestStr = latestDate ? fmtDate(latestDate) : 'unknown';
 
-    let grandTotal = 0, grandCount = 0;
+    let grandTotal = 0;
+    let grandCount = 0;
+
     CATEGORY_GROUP_ORDER.forEach(g => {
       const rows = byGroup[g] || [];
       grandTotal += rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       grandCount += rows.length;
     });
-    const excavationTotal = (byGroup['Excavation of Trenches'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
-    const concreteTotal = (byGroup['Concrete Works'] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+
+    const excavationTotal = (byGroup['Excavation of Trenches'] || [])
+      .reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+
+    const concreteTotal = (byGroup['Concrete Works'] || [])
+      .reduce((s, e) => s + (Number(e.Amount) || 0), 0);
 
     // ---- Summary ----
     const sumAoa = [];
     const sumCur = [];
-    sumAoa.push(['SITE EXPENSE REPORT \u2014 SUMMARY']);
+
+    sumAoa.push(['SITE EXPENSE REPORT — SUMMARY']);
     sumAoa.push([`Site Expense Manager | Report date: ${reportDate} | ${grandCount} transactions | Data recorded through ${latestStr}`]);
-    sumAoa.push(['Controlling source: live app database. Categories assigned at entry via categories.js \u2014 no re-derivation performed in this report.']);
+    sumAoa.push(['Controlling source: live app Expenses ledger. Sand detail sheets use normalized sand records only for classification/detail and do not add to financial totals again.']);
     sumAoa.push([]);
     sumAoa.push(['Category', 'Total Amount (\u20a6)', '% of Total']);
+
     CATEGORY_GROUP_ORDER.forEach(g => {
       const total = (byGroup[g] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       sumAoa.push([g, total, grandTotal > 0 ? total / grandTotal : 0]);
       sumCur.push([sumAoa.length, 2]);
     });
+
     sumAoa.push([]);
     sumAoa.push(['EXCAVATION / FOUNDATION SUBTOTAL (CONTROL)']);
     sumAoa.push(['Excavation of Trenches + Concrete Works (includes column base work & materials)', '', excavationTotal + concreteTotal]);
     sumCur.push([sumAoa.length, 3]);
+
     sumAoa.push([]);
     sumAoa.push(['GRAND TOTAL', grandTotal]);
     sumCur.push([sumAoa.length, 2]);
 
     const sumWs = XLSX.utils.aoa_to_sheet(sumAoa);
-    sumWs['!cols'] = [{ wch: 45 }, { wch: 18 }, { wch: 12 }];
+    sumWs['!cols'] = [{ wch: 50 }, { wch: 18 }, { wch: 12 }];
     setCurrency(sumWs, sumCur);
-    // percentage column formatting
+
     for (let i = 5; i <= 4 + CATEGORY_GROUP_ORDER.length; i++) {
       const ref = XLSX.utils.encode_cell({ r: i - 1, c: 2 });
       if (sumWs[ref]) sumWs[ref].z = '0.0%';
     }
+
     XLSX.utils.book_append_sheet(wb, sumWs, 'Summary');
 
     // ---- By Period ----
     const periods = {};
+
     CATEGORY_GROUP_ORDER.forEach(g => {
       (byGroup[g] || []).forEach(e => {
         const key = periodKey(e.Date);
@@ -387,44 +540,77 @@
         periods[key][g] = (periods[key][g] || 0) + (Number(e.Amount) || 0);
       });
     });
-    const sortedKeys = Object.keys(periods).sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
+
+    const sortedKeys = Object.keys(periods)
+      .sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
+
     const bpAoa = [];
     const bpCur = [];
-    bpAoa.push(['SITE EXPENSES \u2014 BY PERIOD']);
+
+    bpAoa.push(['SITE EXPENSES — BY PERIOD']);
     bpAoa.push([]);
     bpAoa.push(['Period', ...CATEGORY_GROUP_ORDER, 'Total']);
+
     const periodTotals = {};
     let grand = 0;
+
     sortedKeys.forEach(key => {
       let rowTotal = 0;
       const row = [key];
+
       CATEGORY_GROUP_ORDER.forEach(g => {
         const v = (periods[key] && periods[key][g]) || 0;
         row.push(v);
         rowTotal += v;
         periodTotals[g] = (periodTotals[g] || 0) + v;
       });
+
       row.push(rowTotal);
       grand += rowTotal;
       bpAoa.push(row);
-      for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) bpCur.push([bpAoa.length, c]);
+
+      for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) {
+        bpCur.push([bpAoa.length, c]);
+      }
     });
-    const totalRow = ['TOTAL', ...CATEGORY_GROUP_ORDER.map(g => periodTotals[g] || 0), grand];
+
+    const totalRow = [
+      'TOTAL',
+      ...CATEGORY_GROUP_ORDER.map(g => periodTotals[g] || 0),
+      grand
+    ];
     bpAoa.push(totalRow);
-    for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) bpCur.push([bpAoa.length, c]);
+
+    for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) {
+      bpCur.push([bpAoa.length, c]);
+    }
+
     const bpWs = XLSX.utils.aoa_to_sheet(bpAoa);
-    bpWs['!cols'] = [{ wch: 15 }, ...CATEGORY_GROUP_ORDER.map(() => ({ wch: 19 })), { wch: 19 }];
+    bpWs['!cols'] = [
+      { wch: 15 },
+      ...CATEGORY_GROUP_ORDER.map(() => ({ wch: 19 })),
+      { wch: 19 }
+    ];
     setCurrency(bpWs, bpCur);
     XLSX.utils.book_append_sheet(wb, bpWs, 'By Period');
 
-    // ---- Block Production Log (from BlockProduction sheet entries) ----
+    // ---- Block Production Log ----
     const logAoa = [];
     logAoa.push(['BLOCK PRODUCTION LOG']);
     logAoa.push([`Production records in source ledger | Report date: ${reportDate}`]);
     logAoa.push(['S/N', 'Date', 'Cement Bags', 'Blocks Produced']);
-    bpEntries.slice().sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date)).forEach((e, i) => {
-      logAoa.push([i + 1, fmtDate(e.Date), Number(e['Cement (Bags)']) || 0, Number(e['Blocks Produced']) || 0]);
-    });
+
+    bpEntries.slice()
+      .sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date))
+      .forEach((e, i) => {
+        logAoa.push([
+          i + 1,
+          fmtDate(e.Date),
+          Number(e['Cement (Bags)']) || 0,
+          Number(e['Blocks Produced']) || 0
+        ]);
+      });
+
     const logWs = XLSX.utils.aoa_to_sheet(logAoa);
     logWs['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
     XLSX.utils.book_append_sheet(wb, logWs, 'Block Production Log');
@@ -433,6 +619,7 @@
     const totalBags = bpEntries.reduce((s, e) => s + (Number(e['Cement (Bags)']) || 0), 0);
     const totalBlocks = bpEntries.reduce((s, e) => s + (Number(e['Blocks Produced']) || 0), 0);
     const avgPerBag = totalBags > 0 ? totalBlocks / totalBags : 0;
+
     const bpsAoa = [
       ['BLOCK PRODUCTION SUMMARY'],
       [`Production analysis from recorded Block Production transactions | Report date: ${reportDate}`],
@@ -442,30 +629,57 @@
       ['Total Blocks Produced', totalBlocks, 'Blocks', 'From production log'],
       ['Average Blocks per Bag', Math.round(avgPerBag * 100) / 100, 'Blocks/Bag', 'Weighted average']
     ];
+
     const bpsWs = XLSX.utils.aoa_to_sheet(bpsAoa);
     bpsWs['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(wb, bpsWs, 'Block Production Summary');
 
-    // ---- Sand Purchase Detail (Sharp Sand / plaster Sand leaf categories only) ----
-    const sandRows = (byGroup['Block Production'] || []).filter(e => e.Category === 'Sharp Sand' || e.Category === 'plaster Sand');
+    // ---- Sand Purchase Detail — Block Production ----
+    // Categories are case-sensitive in the stored ledger. Use the exact
+    // updated taxonomy name: "Plaster Sand", not the old "plaster Sand".
+    const blockSandEntries = sandRowsByOrigin('Block Production');
     const spAoa = [
-      ['SAND PURCHASE DETAIL \u2014 BLOCK PRODUCTION'],
-      ['All entries below are taken from the Sharp Sand / plaster Sand transactions in Block Production.'],
-      ['Date', 'Sand Type', 'No. of Trips', 'Original Description', 'Amount (\u20a6)', 'Payment Method']
+      ['SAND PURCHASE DETAIL — BLOCK PRODUCTION'],
+      ['Block-production sand from the normalized BlockProductionSand ledger.'],
+      ['Date', 'Sand Type', 'Quantity / Trips', 'Original Description', 'Amount (\u20a6)', 'Payment Method']
     ];
     const spCur = [];
-    sandRows.forEach(e => {
+
+    blockSandEntries.forEach(e => {
       const desc = e.Description || '';
       const tripMatch = desc.match(/(\d+)\s*trip/i);
-      const trips = tripMatch ? Number(tripMatch[1]) : 1;
-      const sandType = /plaster/i.test(desc) || e.Category === 'plaster Sand' ? 'Plaster Sand' : 'Sharp Sand';
-      spAoa.push([fmtDate(e.Date), sandType, trips, desc, Number(e.Amount) || 0, e['Payment Method'] || '']);
+      const trips = Number(e.Quantity) || (tripMatch ? Number(tripMatch[1]) : 1);
+
+      spAoa.push([
+        fmtDate(e.Date),
+        sandTypeOf(e),
+        trips,
+        desc,
+        Number(e.Amount) || 0,
+        e['Payment Method'] || ''
+      ]);
       spCur.push([spAoa.length, 5]);
     });
+
+    spAoa.push(['', '', '', 'TOTAL', blockSandEntries.reduce((s, e) => s + (Number(e.Amount) || 0), 0), '']);
+    spCur.push([spAoa.length, 5]);
+
     const spWs = XLSX.utils.aoa_to_sheet(spAoa);
-    spWs['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 32 }, { wch: 14 }, { wch: 16 }];
+    spWs['!cols'] = [
+      { wch: 14 }, { wch: 16 }, { wch: 16 },
+      { wch: 40 }, { wch: 16 }, { wch: 18 }
+    ];
     setCurrency(spWs, spCur);
     XLSX.utils.book_append_sheet(wb, spWs, 'Sand Purchase Detail');
+
+    // ---- Other / Standalone Sand Detail ----
+    const otherSandEntries = sandRowsByOrigin('Standalone / Other Sand');
+    const otherSandWs = buildSandDetailSheetAoa(
+      'OTHER / STANDALONE SAND DETAIL',
+      'Standalone/non-block-production sand mirrored from the Expenses ledger into OtherSandImports.',
+      otherSandEntries
+    );
+    XLSX.utils.book_append_sheet(wb, otherSandWs, 'Other Sand Detail');
 
     // ---- One detail sheet per category group ----
     CATEGORY_GROUP_ORDER.forEach(g => {
@@ -477,6 +691,7 @@
 
     // ---- Production of Blocks / Block Production Expenses split ----
     const { autoLog, manual } = blockProductionSplit();
+
     const pobWs = buildDetailSheetAoa(
       'PRODUCTION OF BLOCKS',
       'Actual block production records, including Block Moulding Labour. This is one component of the total Block Production cost.',
@@ -493,90 +708,160 @@
 
     // ---- Concrete Works Breakdown ----
     const cb = concreteBreakdown();
-    const cbAoa = [['CONCRETE WORKS BREAKDOWN'], ['What makes up the Concrete Works total, by component.'], [],
-      ['Component', 'Transactions', 'Amount (\u20a6)', '% of Concrete Works']];
+    const cbAoa = [
+      ['CONCRETE WORKS BREAKDOWN'],
+      ['What makes up the Concrete Works total, by component. Block Setting and Hollow Filling are included here by the updated taxonomy.'],
+      [],
+      ['Component', 'Transactions', 'Amount (\u20a6)', '% of Concrete Works']
+    ];
     const cbCur = [];
-    cb.list.forEach(r => { cbAoa.push([r.name, r.count, r.total, r.pct]); cbCur.push([cbAoa.length, 3]); });
+
+    cb.list.forEach(r => {
+      cbAoa.push([r.name, r.count, r.total, r.pct]);
+      cbCur.push([cbAoa.length, 3]);
+    });
+
     cbAoa.push(['TOTAL CONCRETE WORKS', cb.count, cb.total, cb.total > 0 ? 1 : 0]);
     cbCur.push([cbAoa.length, 3]);
+
     const cbWs = XLSX.utils.aoa_to_sheet(cbAoa);
     cbWs['!cols'] = [{ wch: 34 }, { wch: 14 }, { wch: 18 }, { wch: 20 }];
     setCurrency(cbWs, cbCur);
+
     for (let r = 5; r <= cbAoa.length; r++) {
       const ref = XLSX.utils.encode_cell({ r: r - 1, c: 3 });
       if (cbWs[ref]) cbWs[ref].z = '0.0%';
     }
+
     XLSX.utils.book_append_sheet(wb, cbWs, 'Concrete Works Breakdown');
 
-    // ---- Sand Breakdown + Sand Detail (own sheets) ----
+    // ---- Sand Breakdown ----
     const sb = sandBreakdown();
-    const sbAoa = [['SAND BREAKDOWN'], ['Sources: standalone sand from expense imports and block-production sand.'], [],
-      ['Sand Type', 'Transactions', 'Quantity (trips)', 'Amount (\u20a6)', '% of Sand']];
+    const sbAoa = [
+      ['SAND BREAKDOWN'],
+      ['Sources: standalone/other sand plus block-production sand. Sand rows are reporting/index records; financial totals remain controlled by Expenses.'],
+      [],
+      ['Sand Type', 'Transactions', 'Quantity (trips)', 'Amount (\u20a6)', '% of Sand']
+    ];
     const sbCur = [];
-    sb.byType.forEach(r => { sbAoa.push([r.name, r.count, r.qty, r.total, r.pct]); sbCur.push([sbAoa.length, 4]); });
-    sbAoa.push(['TOTAL SAND', sb.count, sb.byType.reduce((s, r) => s + r.qty, 0), sb.total, sb.total > 0 ? 1 : 0]);
+
+    sb.byType.forEach(r => {
+      sbAoa.push([r.name, r.count, r.qty, r.total, r.pct]);
+      sbCur.push([sbAoa.length, 4]);
+    });
+
+    sbAoa.push([
+      'TOTAL SAND',
+      sb.count,
+      sb.byType.reduce((s, r) => s + r.qty, 0),
+      sb.total,
+      sb.total > 0 ? 1 : 0
+    ]);
     sbCur.push([sbAoa.length, 4]);
-    const pctFrom = 5, pctTo = sbAoa.length;
+
+    const pctFrom = 5;
+    const pctTo = sbAoa.length;
+
     sbAoa.push([]);
     sbAoa.push(['By Source', 'Transactions', '', 'Amount (\u20a6)']);
-    sb.bySource.forEach(r => { sbAoa.push([r.name, r.count, '', r.total]); sbCur.push([sbAoa.length, 4]); });
+
+    sb.bySource.forEach(r => {
+      sbAoa.push([r.name, r.count, '', r.total]);
+      sbCur.push([sbAoa.length, 4]);
+    });
+
     const sbWs = XLSX.utils.aoa_to_sheet(sbAoa);
-    sbWs['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 12 }];
+    sbWs['!cols'] = [
+      { wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 12 }
+    ];
     setCurrency(sbWs, sbCur);
+
     for (let r = pctFrom; r <= pctTo; r++) {
       const ref = XLSX.utils.encode_cell({ r: r - 1, c: 4 });
       if (sbWs[ref]) sbWs[ref].z = '0.0%';
     }
+
     XLSX.utils.book_append_sheet(wb, sbWs, 'Sand Breakdown');
 
-    const sdAoa = [['SAND DETAIL'], [], ['Date', 'Sand Type', 'Description', 'Source', 'Quantity', 'Unit', 'Vendor', 'Amount (\u20a6)', 'Payment Method']];
+    // ---- Combined Sand Detail ----
+    const sdAoa = [
+      ['SAND DETAIL'],
+      ['Combined sand detail for reference. See Sand Purchase Detail and Other Sand Detail for separated views.'],
+      [],
+      ['Date', 'Sand Type', 'Description', 'Source', 'Quantity', 'Unit', 'Vendor', 'Amount (\u20a6)', 'Payment Method']
+    ];
     const sdCur = [];
-    sandEntries.forEach(e => {
-      sdAoa.push([fmtDate(e.Date), sandTypeOf(e), e.Description || '', e.Origin || '', Number(e.Quantity) || '', e.Unit || '', e.Vendor || '', Number(e.Amount) || 0, e['Payment Method'] || '']);
-      sdCur.push([sdAoa.length, 8]);
-    });
+
+    sandEntries.slice()
+      .sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date))
+      .forEach(e => {
+        sdAoa.push([
+          fmtDate(e.Date),
+          sandTypeOf(e),
+          e.Description || '',
+          sandOriginOf(e),
+          Number(e.Quantity) || '',
+          e.Unit || '',
+          e.Vendor || '',
+          Number(e.Amount) || 0,
+          e['Payment Method'] || ''
+        ]);
+        sdCur.push([sdAoa.length, 8]);
+      });
+
     sdAoa.push(['', '', '', '', '', '', 'TOTAL', sb.total, '']);
     sdCur.push([sdAoa.length, 8]);
+
     const sdWs = XLSX.utils.aoa_to_sheet(sdAoa);
-    sdWs['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 40 }, { wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 16 }];
+    sdWs['!cols'] = [
+      { wch: 16 }, { wch: 16 }, { wch: 40 }, { wch: 28 },
+      { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 16 }
+    ];
     setCurrency(sdWs, sdCur);
     XLSX.utils.book_append_sheet(wb, sdWs, 'Sand Detail');
 
     // ---- Excavation Breakdown Summary ----
     const excCount = (byGroup['Excavation of Trenches'] || []).length;
     const concCount = (byGroup['Concrete Works'] || []).length;
+
     const ebsAoa = [
       ['EXCAVATION / FOUNDATION WORK BREAKDOWN SUMMARY'],
       [],
       ['Detailed Sheet', 'Transactions', 'Amount (\u20a6)'],
       ['Excavation of Trenches', excCount, excavationTotal],
-      ['Concrete Works (incl. column base work & materials)', concCount, concreteTotal],
+      ['Concrete Works (incl. Block Setting, Hollow Filling, column base work & materials)', concCount, concreteTotal],
       ['TOTAL', excCount + concCount, excavationTotal + concreteTotal]
     ];
+
     const ebsWs = XLSX.utils.aoa_to_sheet(ebsAoa);
-    ebsWs['!cols'] = [{ wch: 50 }, { wch: 14 }, { wch: 16 }];
+    ebsWs['!cols'] = [{ wch: 65 }, { wch: 14 }, { wch: 16 }];
     setCurrency(ebsWs, [[4, 3], [5, 3], [6, 3]]);
     XLSX.utils.book_append_sheet(wb, ebsWs, 'Excavation Breakdown Summary');
 
-    XLSX.writeFile(wb, 'Site_Expense_Final_Report_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    XLSX.writeFile(
+      wb,
+      'Site_Expense_Final_Report_' + new Date().toISOString().slice(0, 10) + '.xlsx'
+    );
   }
 
   // ---------------------------------------------------------------
-  // Fix Historical Categories (Admin only) — preview/apply flow for
-  // autoRecategorize on the backend.
+  // Fix Historical Categories (Admin only)
   // ---------------------------------------------------------------
   function initRecategorizeCard() {
     const card = document.getElementById('recategorizeCard');
     card.style.display = 'block';
 
-    // Offer every category that actually has expenses in it as a
-    // possible "from" bucket — not just "Excavation of Trenches" —
-    // since the same historical-blanket-category problem could exist
-    // elsewhere (e.g. everything once dumped under "Other Expenses").
     const sel = document.getElementById('recatFromCategory');
-    const candidateCategories = CATEGORY_FLAT.filter(c => allExpenses.some(e => e.Category === c));
-    sel.innerHTML = candidateCategories.map(c => `<option value="${c}">${c}</option>`).join('');
-    if (candidateCategories.includes('Excavation of Trenches')) sel.value = 'Excavation of Trenches';
+    const candidateCategories = CATEGORY_FLAT.filter(c =>
+      allExpenses.some(e => e.Category === c)
+    );
+
+    sel.innerHTML = candidateCategories
+      .map(c => `<option value="${c}">${c}</option>`).join('');
+
+    if (candidateCategories.includes('Excavation of Trenches')) {
+      sel.value = 'Excavation of Trenches';
+    }
 
     let lastPreview = null;
 
@@ -584,18 +869,22 @@
       const btn = document.getElementById('recatPreviewBtn');
       const applyBtn = document.getElementById('recatApplyBtn');
       const box = document.getElementById('recatPreviewBox');
+
       btn.disabled = true;
-      btn.textContent = 'Checking\u2026';
+      btn.textContent = 'Checking…';
       applyBtn.style.display = 'none';
+
       try {
         const result = await Api.autoRecategorize(sel.value, true);
         lastPreview = result;
+
         if (!result.totalMatches) {
           box.innerHTML = `<p style="color:var(--color-ink-muted);">No expenses under "${result.fromCategory}" matched a more specific category. Nothing to change.</p>`;
         } else {
           const rows = Object.entries(result.byNewCategory).map(([cat, info]) =>
             `<tr><td>${cat}</td><td>${info.count}</td><td>${money(info.total)}</td></tr>`
           ).join('');
+
           box.innerHTML = `
             <p style="margin-bottom:10px;"><strong>${result.totalMatches}</strong> expense(s) under "${result.fromCategory}" would move:</p>
             <div class="table-wrap">
@@ -622,24 +911,33 @@
 
     document.getElementById('recatApplyBtn').addEventListener('click', async () => {
       if (!lastPreview || !lastPreview.totalMatches) return;
-      const ok = confirm(`This will update the Category on ${lastPreview.totalMatches} expense(s). This can't be undone automatically. Continue?`);
+
+      const ok = confirm(
+        `This will update the Category on ${lastPreview.totalMatches} expense(s). This can't be undone automatically. Continue?`
+      );
       if (!ok) return;
 
       const applyBtn = document.getElementById('recatApplyBtn');
       applyBtn.disabled = true;
-      applyBtn.textContent = 'Applying\u2026';
+      applyBtn.textContent = 'Applying…';
+
       try {
         const result = await Api.autoRecategorize(lastPreview.fromCategory, false);
         showToast(`${result.totalMatches} expense(s) re-categorized`, 'success');
-        document.getElementById('recatPreviewBox').innerHTML = '<p style="color:var(--color-accent);">Changes applied. Reloading report\u2026</p>';
+
+        document.getElementById('recatPreviewBox').innerHTML =
+          '<p style="color:var(--color-accent);">Changes applied. Reloading report…</p>';
         applyBtn.style.display = 'none';
-        // Reload everything so the Summary/By Period/detail views reflect the change immediately.
+
         const [expData] = await Promise.all([Api.getExpenses()]);
         allExpenses = expData.expenses || [];
+
         groupExpenses();
         renderSummary();
         renderByPeriod();
         renderBlockProductionBreakdown();
+        renderConcreteBreakdown();
+        renderSandBreakdown();
         populateDetailSelect();
       } catch (err) {
         showToast(err.message, 'error');
