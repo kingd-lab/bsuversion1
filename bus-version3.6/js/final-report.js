@@ -114,35 +114,36 @@
       ? CATEGORY_GROUPS
       : FALLBACK_GROUPS;
 
-  const GROUP_ORDER =
-    Object.keys(GROUPS);
+  const GROUP_ORDER = Object.keys(GROUPS);
 
   const GROUP_OF = {};
 
   GROUP_ORDER.forEach(function (group) {
-    GROUPS[group].forEach(function (category) {
+    (GROUPS[group] || []).forEach(function (category) {
       GROUP_OF[category] = group;
     });
   });
 
-  const money = function (value) {
-    return '\u20a6' +
+  function money(value) {
+    return (
+      '\u20a6' +
       Number(value || 0).toLocaleString(
         undefined,
         {
           maximumFractionDigits: 2
         }
-      );
-  };
+      )
+    );
+  }
 
-  const clean = function (value) {
+  function clean(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
-  };
+  }
 
   function parseDate(value) {
     if (!value) {
@@ -153,15 +154,13 @@
       return value;
     }
 
-    const text =
-      String(value).trim();
+    const text = String(value).trim();
 
     if (!text) {
       return null;
     }
 
-    const match =
-      text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
     if (match) {
       return new Date(
@@ -171,17 +170,13 @@
       );
     }
 
-    const d =
-      new Date(text);
+    const d = new Date(text);
 
-    return isNaN(d.getTime())
-      ? null
-      : d;
+    return isNaN(d.getTime()) ? null : d;
   }
 
   function formatDate(value) {
-    const d =
-      parseDate(value);
+    const d = parseDate(value);
 
     if (!d) {
       return String(value || '—');
@@ -198,8 +193,7 @@
   }
 
   function getMonthKey(value) {
-    const d =
-      parseDate(value);
+    const d = parseDate(value);
 
     if (!d) {
       return 'Unknown';
@@ -215,15 +209,13 @@
   }
 
   function showToast(message, type) {
-    const toast =
-      document.getElementById('toast');
+    const toast = document.getElementById('toast');
 
     if (!toast) {
       return;
     }
 
-    toast.textContent =
-      message;
+    toast.textContent = message;
 
     toast.className =
       'toast show ' +
@@ -241,32 +233,32 @@
       groupedExpenses[group] = [];
     });
 
-    groupedExpenses['Other Expenses'] =
-      groupedExpenses['Other Expenses'] || [];
+    if (!groupedExpenses['Other Expenses']) {
+      groupedExpenses['Other Expenses'] = [];
+    }
 
     allExpenses.forEach(function (expense) {
+      const category = String(
+        expense.Category || ''
+      ).trim();
+
       const group =
-        GROUP_OF[expense.Category] ||
+        GROUP_OF[category] ||
         'Other Expenses';
 
       if (!groupedExpenses[group]) {
         groupedExpenses[group] = [];
       }
 
-      groupedExpenses[group].push(
-        expense
-      );
+      groupedExpenses[group].push(expense);
     });
 
-    Object.keys(groupedExpenses)
-      .forEach(function (group) {
+    Object.keys(groupedExpenses).forEach(
+      function (group) {
         groupedExpenses[group].sort(
           function (a, b) {
-            const da =
-              parseDate(a.Date);
-
-            const db =
-              parseDate(b.Date);
+            const da = parseDate(a.Date);
+            const db = parseDate(b.Date);
 
             if (!da || !db) {
               return 0;
@@ -275,14 +267,17 @@
             return da - db;
           }
         );
-      });
+      }
+    );
   }
 
   function totalRows(rows) {
-    return rows.reduce(
+    return (rows || []).reduce(
       function (sum, row) {
-        return sum +
-          (Number(row.Amount) || 0);
+        return (
+          sum +
+          (Number(row.Amount) || 0)
+        );
       },
       0
     );
@@ -290,9 +285,7 @@
 
   function renderSummary() {
     const body =
-      document.getElementById(
-        'summaryRows'
-      );
+      document.getElementById('summaryRows');
 
     if (!body) {
       return;
@@ -328,9 +321,7 @@
         .join('');
 
     const grand =
-      document.getElementById(
-        'grandTotal'
-      );
+      document.getElementById('grandTotal');
 
     if (grand) {
       grand.textContent =
@@ -339,16 +330,12 @@
 
     const excavation =
       totalRows(
-        groupedExpenses[
-          'Excavation of Trenches'
-        ] || []
+        groupedExpenses['Excavation of Trenches'] || []
       );
 
     const concrete =
       totalRows(
-        groupedExpenses[
-          'Concrete Works'
-        ] || []
+        groupedExpenses['Concrete Works'] || []
       );
 
     const foundation =
@@ -389,9 +376,11 @@
       meta.textContent =
         allExpenses.length +
         ' transactions · data through ' +
-        (latest
-          ? formatDate(latest)
-          : '—') +
+        (
+          latest
+            ? formatDate(latest)
+            : '—'
+        ) +
         ' · generated ' +
         new Date().toLocaleDateString();
     }
@@ -442,28 +431,30 @@
     const keys =
       Object.keys(periods)
         .sort(function (a, b) {
-          return new Date(
-            '1 ' + a
-          ) -
-          new Date(
-            '1 ' + b
-          );
+          const da =
+            new Date('1 ' + a);
+
+          const db =
+            new Date('1 ' + b);
+
+          return da - db;
         });
 
     head.innerHTML =
       '<th>Period</th>' +
       GROUP_ORDER
         .map(function (group) {
-          return '<th>' +
+          return (
+            '<th>' +
             clean(group) +
-            '</th>';
+            '</th>'
+          );
         })
         .join('') +
       '<th>Total</th>';
 
     const totals = {};
     let grand = 0;
-
     let html = '';
 
     keys.forEach(function (key) {
@@ -482,7 +473,9 @@
         rowTotal += amount;
 
         totals[group] =
-          (totals[group] || 0) +
+          (
+            totals[group] || 0
+          ) +
           amount;
 
         html +=
@@ -521,8 +514,7 @@
       '</td>' +
       '</tr>';
 
-    body.innerHTML =
-      html;
+    body.innerHTML = html;
   }
 
   function renderBlockProduction() {
@@ -543,7 +535,9 @@
     const autoRows =
       rows.filter(function (row) {
         return (
-          row['Payment Method'] ===
+          String(
+            row['Payment Method'] || ''
+          ) ===
           'Auto (Production Log)'
         );
       });
@@ -551,7 +545,9 @@
     const manualRows =
       rows.filter(function (row) {
         return (
-          row['Payment Method'] !==
+          String(
+            row['Payment Method'] || ''
+          ) !==
           'Auto (Production Log)'
         );
       });
@@ -596,8 +592,10 @@
 
     rows.forEach(function (row) {
       const category =
-        row.Category ||
-        'Miscellaneous';
+        String(
+          row.Category ||
+          'Miscellaneous'
+        ).trim();
 
       if (!totals[category]) {
         totals[category] = {
@@ -674,8 +672,7 @@
   function getSandOrigin(row) {
     const origin =
       String(
-        row.Origin ||
-        ''
+        row.Origin || ''
       ).toLowerCase();
 
     if (
@@ -693,28 +690,22 @@
     const text =
       (
         String(
-          row['Sand Type'] ||
-          ''
+          row['Sand Type'] || ''
         ) +
         ' ' +
         String(
-          row.Description ||
-          ''
+          row.Description || ''
         )
       ).toLowerCase();
 
     if (
-      text.indexOf(
-        'plaster'
-      ) !== -1
+      text.indexOf('plaster') !== -1
     ) {
       return 'Plaster Sand';
     }
 
     if (
-      text.indexOf(
-        'sharp'
-      ) !== -1
+      text.indexOf('sharp') !== -1
     ) {
       return 'Sharp Sand';
     }
@@ -776,8 +767,10 @@
       }
 
       typeTotals[type].count += 1;
-      typeTotals[type].quantity += quantity;
-      typeTotals[type].amount += amount;
+      typeTotals[type].quantity +=
+        quantity;
+      typeTotals[type].amount +=
+        amount;
 
       if (!sourceTotals[source]) {
         sourceTotals[source] = {
@@ -787,17 +780,20 @@
       }
 
       sourceTotals[source].count += 1;
-      sourceTotals[source].amount += amount;
+      sourceTotals[source].amount +=
+        amount;
     });
 
     const sandTotal =
       sandEntries.reduce(
         function (sum, row) {
-          return sum +
+          return (
+            sum +
             (
               Number(row.Amount) ||
               0
-            );
+            )
+          );
         },
         0
       );
@@ -835,11 +831,13 @@
           <td>${
             sandEntries.reduce(
               function (sum, row) {
-                return sum +
+                return (
+                  sum +
                   (
                     Number(row.Quantity) ||
                     0
-                  );
+                  )
+                );
               },
               0
             ) || '—'
@@ -873,8 +871,16 @@
             parseDate(b.Date);
 
           return (
-            (da ? da.getTime() : 0) -
-            (db ? db.getTime() : 0)
+            (
+              da
+                ? da.getTime()
+                : 0
+            ) -
+            (
+              db
+                ? db.getTime()
+                : 0
+            )
           );
         })
         .map(function (row) {
@@ -956,28 +962,27 @@
 
       if (!rows.length) {
         body.innerHTML = '';
-        empty.style.display =
-          'block';
-
+        empty.style.display = 'block';
         return;
       }
 
-      empty.style.display =
-        'none';
+      empty.style.display = 'none';
 
       body.innerHTML =
-        rows.map(function (row) {
-          return `
-            <tr>
-              <td>${formatDate(row.Date)}</td>
-              <td>${clean(row.Category)}</td>
-              <td>${clean(row.Description || '')}</td>
-              <td>${clean(row.Vendor || '—')}</td>
-              <td>${money(row.Amount)}</td>
-              <td>${clean(row['Payment Method'] || '—')}</td>
-            </tr>
-          `;
-        }).join('') +
+        rows
+          .map(function (row) {
+            return `
+              <tr>
+                <td>${formatDate(row.Date)}</td>
+                <td>${clean(row.Category)}</td>
+                <td>${clean(row.Description || '')}</td>
+                <td>${clean(row.Vendor || '—')}</td>
+                <td>${money(row.Amount)}</td>
+                <td>${clean(row['Payment Method'] || '—')}</td>
+              </tr>
+            `;
+          })
+          .join('') +
 
         `
           <tr style="font-weight:700;border-top:2px solid var(--color-border);">
@@ -1037,28 +1042,21 @@
       const workbook =
         XLSX.utils.book_new();
 
-      const addSheet =
-        function (
-          name,
-          rows
-        ) {
-          const safeRows =
-            rows || [];
+      function addSheet(name, rows) {
+        const safeRows =
+          rows || [];
 
-          const worksheet =
-            XLSX.utils.json_to_sheet(
-              safeRows
-            );
-
-          XLSX.utils.book_append_sheet(
-            workbook,
-            worksheet,
-            name.substring(
-              0,
-              31
-            )
+        const worksheet =
+          XLSX.utils.json_to_sheet(
+            safeRows
           );
-        };
+
+        XLSX.utils.book_append_sheet(
+          workbook,
+          worksheet,
+          name.substring(0, 31)
+        );
+      }
 
       const summary = [];
 
@@ -1092,6 +1090,184 @@
         summary
       );
 
+      const periods = {};
+
+      allExpenses.forEach(
+        function (row) {
+          const period =
+            getMonthKey(row.Date);
+
+          if (!periods[period]) {
+            periods[period] = {};
+          }
+
+          const group =
+            GROUP_OF[row.Category] ||
+            'Other Expenses';
+
+          periods[period][group] =
+            (
+              periods[period][group] ||
+              0
+            ) +
+            (
+              Number(row.Amount) ||
+              0
+            );
+        }
+      );
+
+      const byPeriod = [];
+
+      Object.keys(periods)
+        .sort(function (a, b) {
+          return (
+            new Date('1 ' + a) -
+            new Date('1 ' + b)
+          );
+        })
+        .forEach(function (period) {
+          const record = {
+            Period: period
+          };
+
+          let total = 0;
+
+          GROUP_ORDER.forEach(
+            function (group) {
+              const amount =
+                periods[period][group] ||
+                0;
+
+              record[group] =
+                amount;
+
+              total += amount;
+            }
+          );
+
+          record.Total =
+            total;
+
+          byPeriod.push(record);
+        });
+
+      addSheet(
+        'By Period',
+        byPeriod
+      );
+
+      const blockProduction =
+        (
+          groupedExpenses[
+            'Block Production'
+          ] || []
+        ).map(
+          function (row) {
+            return {
+              Date:
+                row.Date,
+              Category:
+                row.Category,
+              Description:
+                row.Description || '',
+              Amount:
+                Number(row.Amount) ||
+                0,
+              Vendor:
+                row.Vendor || '',
+              PaymentMethod:
+                row['Payment Method'] ||
+                ''
+            };
+          }
+        );
+
+      addSheet(
+        'Block Production',
+        blockProduction
+      );
+
+      const blockProductionSummary = [
+        {
+          Section:
+            'Production of Blocks',
+          Transactions:
+            (
+              groupedExpenses[
+                'Block Production'
+              ] || []
+            ).filter(
+              function (row) {
+                return (
+                  String(
+                    row['Payment Method'] || ''
+                  ) ===
+                  'Auto (Production Log)'
+                );
+              }
+            ).length,
+          Amount:
+            totalRows(
+              (
+                groupedExpenses[
+                  'Block Production'
+                ] || []
+              ).filter(
+                function (row) {
+                  return (
+                    String(
+                      row['Payment Method'] || ''
+                    ) ===
+                    'Auto (Production Log)'
+                  );
+                }
+              )
+            )
+        },
+        {
+          Section:
+            'Block Production Expenses',
+          Transactions:
+            (
+              groupedExpenses[
+                'Block Production'
+              ] || []
+            ).filter(
+              function (row) {
+                return (
+                  String(
+                    row['Payment Method'] || ''
+                  ) !==
+                  'Auto (Production Log)'
+                );
+              }
+            ).length,
+          Amount:
+            totalRows(
+              (
+                groupedExpenses[
+                  'Block Production'
+                ] || []
+              ).filter(
+                function (row) {
+                  return (
+                    String(
+                      row['Payment Method'] || ''
+                    ) !==
+                    'Auto (Production Log)'
+                  );
+                }
+              )
+            )
+        }
+      ];
+
+      addSheet(
+        'Block Prod Summary',
+        blockProductionSummary
+      );
+
       const concrete =
         (
           groupedExpenses[
@@ -1123,6 +1299,58 @@
         concrete
       );
 
+      const concreteSummary = [];
+
+      const concreteTotals = {};
+
+      (
+        groupedExpenses[
+          'Concrete Works'
+        ] || []
+      ).forEach(function (row) {
+        const category =
+          row.Category ||
+          'Miscellaneous';
+
+        concreteTotals[category] =
+          (
+            concreteTotals[category] ||
+            0
+          ) +
+          (
+            Number(row.Amount) ||
+            0
+          );
+      });
+
+      Object.keys(concreteTotals)
+        .forEach(
+          function (category) {
+            concreteSummary.push({
+              Component:
+                category,
+              Amount:
+                concreteTotals[category]
+            });
+          }
+        );
+
+      concreteSummary.push({
+        Component:
+          'TOTAL CONCRETE WORKS',
+        Amount:
+          totalRows(
+            groupedExpenses[
+              'Concrete Works'
+            ] || []
+          )
+      });
+
+      addSheet(
+        'Concrete Breakdown',
+        concreteSummary
+      );
+
       const excavation =
         (
           groupedExpenses[
@@ -1139,7 +1367,12 @@
                 row.Description || '',
               Amount:
                 Number(row.Amount) ||
-                0
+                0,
+              Vendor:
+                row.Vendor || '',
+              PaymentMethod:
+                row['Payment Method'] ||
+                ''
             };
           }
         );
@@ -1149,20 +1382,110 @@
         excavation
       );
 
-      const blockProduction =
-        (
-          groupedExpenses[
-            'Block Production'
-          ] || []
-        ).map(
+      const excavationSummary = [
+        {
+          Section:
+            'Excavation of Trenches',
+          Transactions:
+            excavation.length,
+          Amount:
+            totalRows(
+              groupedExpenses[
+                'Excavation of Trenches'
+              ] || []
+            )
+        }
+      ];
+
+      addSheet(
+        'Excavation Summary',
+        excavationSummary
+      );
+
+      const blockSand =
+        sandEntries
+          .filter(
+            function (row) {
+              return (
+                getSandOrigin(row) ===
+                'Block Production'
+              );
+            }
+          )
+          .map(
+            function (row) {
+              return {
+                Date:
+                  row.Date,
+                SandType:
+                  getSandType(row),
+                Description:
+                  row.Description || '',
+                Quantity:
+                  row.Quantity || '',
+                Amount:
+                  Number(row.Amount) ||
+                  0,
+                Source:
+                  'Block Production'
+              };
+            }
+          );
+
+      addSheet(
+        'Block Prod Sand',
+        blockSand
+      );
+
+      const otherSand =
+        sandEntries
+          .filter(
+            function (row) {
+              return (
+                getSandOrigin(row) !==
+                'Block Production'
+              );
+            }
+          )
+          .map(
+            function (row) {
+              return {
+                Date:
+                  row.Date,
+                SandType:
+                  getSandType(row),
+                Description:
+                  row.Description || '',
+                Quantity:
+                  row.Quantity || '',
+                Amount:
+                  Number(row.Amount) ||
+                  0,
+                Source:
+                  'Standalone / Other Sand'
+              };
+            }
+          );
+
+      addSheet(
+        'Other Sand',
+        otherSand
+      );
+
+      const sandDetail =
+        sandEntries.map(
           function (row) {
             return {
               Date:
                 row.Date,
-              Category:
-                row.Category,
+              SandType:
+                getSandType(row),
               Description:
                 row.Description || '',
+              Source:
+                getSandOrigin(row),
+              Quantity:
+                row.Quantity || '',
               Amount:
                 Number(row.Amount) ||
                 0
@@ -1171,74 +1494,40 @@
         );
 
       addSheet(
-        'Block Production',
-        blockProduction
+        'Sand Detail',
+        sandDetail
       );
 
-      const blockSand =
-        sandEntries.filter(
-          function (row) {
-            return (
-              getSandOrigin(row) ===
-              'Block Production'
-            );
-          }
-        ).map(
-          function (row) {
-            return {
-              Date:
-                row.Date,
-              SandType:
-                getSandType(row),
-              Description:
-                row.Description || '',
-              Quantity:
-                row.Quantity || '',
-              Amount:
-                Number(row.Amount) ||
-                0,
-              Source:
-                'Block Production'
-            };
-          }
-        );
+      const sandReconciliation = [
+        {
+          Source:
+            'Block Production Sand',
+          Transactions:
+            blockSand.length,
+          Amount:
+            totalRows(blockSand)
+        },
+        {
+          Source:
+            'Standalone / Other Sand',
+          Transactions:
+            otherSand.length,
+          Amount:
+            totalRows(otherSand)
+        },
+        {
+          Source:
+            'TOTAL SAND',
+          Transactions:
+            sandEntries.length,
+          Amount:
+            totalRows(sandEntries)
+        }
+      ];
 
       addSheet(
-        'Block Prod Sand',
-        blockSand
-      );
-
-      const otherSand =
-        sandEntries.filter(
-          function (row) {
-            return (
-              getSandOrigin(row) !==
-              'Block Production'
-            );
-          }
-        ).map(
-          function (row) {
-            return {
-              Date:
-                row.Date,
-              SandType:
-                getSandType(row),
-              Description:
-                row.Description || '',
-              Quantity:
-                row.Quantity || '',
-              Amount:
-                Number(row.Amount) ||
-                0,
-              Source:
-                'Standalone / Other Sand'
-            };
-          }
-        );
-
-      addSheet(
-        'Other Sand',
-        otherSand
+        'Sand Reconciliation',
+        sandReconciliation
       );
 
       GROUP_ORDER.forEach(
@@ -1260,7 +1549,10 @@
                     Number(row.Amount) ||
                     0,
                   Vendor:
-                    row.Vendor || ''
+                    row.Vendor || '',
+                  PaymentMethod:
+                    row['Payment Method'] ||
+                    ''
                 };
               }
             );
@@ -1292,297 +1584,4 @@
         error
       );
 
-      showToast(
-        'Excel export failed: ' +
-          error.message,
-        'error'
-      );
-    }
-  }
-
-  async function loadReport() {
-    try {
-      currentUser =
-        await Auth.requireRole(
-          ['Admin', 'Boss']
-        );
-
-      if (!currentUser) {
-        return;
-      }
-
-      const results =
-        await Promise.all([
-          Api.getExpenses(),
-          Api.getBlockProduction(),
-          Api.getSandEntries().catch(
-            function () {
-              return {
-                entries: []
-              };
-            }
-          )
-        ]);
-
-      allExpenses =
-        results[0].expenses || [];
-
-      blockProductionEntries =
-        results[1].entries || [];
-
-      sandEntries =
-        results[2].entries || [];
-
-      groupData();
-
-      renderSummary();
-      renderByPeriod();
-      renderBlockProduction();
-      renderConcrete();
-      renderSand();
-      renderCategoryDetail();
-      addDownloadHandler();
-
-      if (
-        currentUser.role ===
-        'Admin'
-      ) {
-        setupAdminRecategorize();
-      }
-
-    } catch (error) {
-      console.error(
-        'Final Report error:',
-        error
-      );
-
-      showToast(
-        error.message ||
-        'Failed to load Final Report.',
-        'error'
-      );
-    }
-  }
-
-  function setupAdminRecategorize() {
-    const card =
-      document.getElementById(
-        'recategorizeCard'
-      );
-
-    const select =
-      document.getElementById(
-        'recatFromCategory'
-      );
-
-    const preview =
-      document.getElementById(
-        'recatPreviewBtn'
-      );
-
-    const apply =
-      document.getElementById(
-        'recatApplyBtn'
-      );
-
-    const box =
-      document.getElementById(
-        'recatPreviewBox'
-      );
-
-    if (
-      !card ||
-      !select ||
-      !preview ||
-      !apply ||
-      !box
-    ) {
-      return;
-    }
-
-    card.style.display =
-      'block';
-
-    const possible =
-      GROUP_ORDER
-        .map(function (group) {
-          return GROUPS[group];
-        })
-        .reduce(
-          function (all, categories) {
-            return all.concat(
-              categories
-            );
-          },
-          []
-        )
-        .filter(
-          function (category) {
-            return allExpenses.some(
-              function (expense) {
-                return (
-                  expense.Category ===
-                  category
-                );
-              }
-            );
-          }
-        );
-
-    select.innerHTML =
-      possible.map(
-        function (category) {
-          return `
-            <option value="${clean(category)}">
-              ${clean(category)}
-            </option>
-          `;
-        }
-      ).join('');
-
-    if (
-      possible.indexOf(
-        'Excavation of Trenches'
-      ) !== -1
-    ) {
-      select.value =
-        'Excavation of Trenches';
-    }
-
-    preview.onclick =
-      async function () {
-        try {
-          const result =
-            await Api.autoRecategorize(
-              select.value,
-              true
-            );
-
-          if (
-            !result.totalMatches
-          ) {
-            box.innerHTML =
-              '<p>No new historical category matches found.</p>';
-
-            apply.style.display =
-              'none';
-
-            return;
-          }
-
-          box.innerHTML =
-            '<pre style="white-space:pre-wrap;">' +
-            clean(
-              JSON.stringify(
-                result.byNewCategory,
-                null,
-                2
-              )
-            ) +
-            '</pre>';
-
-          apply.style.display =
-            'inline-flex';
-
-        } catch (error) {
-          showToast(
-            error.message,
-            'error'
-          );
-        }
-      };
-
-    apply.onclick =
-      async function () {
-        try {
-          const confirmed =
-            window.confirm(
-              'Apply these historical category changes?'
-            );
-
-          if (!confirmed) {
-            return;
-          }
-
-          const result =
-            await Api.autoRecategorize(
-              select.value,
-              false
-            );
-
-          showToast(
-            result.totalMatches +
-            ' transaction(s) updated.',
-            'success'
-          );
-
-          window.location.reload();
-
-        } catch (error) {
-          showToast(
-            error.message,
-            'error'
-          );
-        }
-      };
-  }
-
-  async function start() {
-    try {
-      if (
-        typeof Layout !==
-        'undefined' &&
-        Layout.build
-      ) {
-        Layout.build(
-          'final-report.html',
-          null
-        );
-      }
-
-      const template =
-        document.getElementById(
-          'pageContent'
-        );
-
-      if (
-        template &&
-        typeof Layout !==
-        'undefined' &&
-        Layout.mainMount
-      ) {
-        Layout.mainMount()
-          .innerHTML =
-          template.innerHTML;
-      }
-
-      const menuButton =
-        document.getElementById(
-          'menuBtn'
-        );
-
-      if (
-        menuButton &&
-        typeof Layout !==
-        'undefined' &&
-        Layout.toggleSidebar
-      ) {
-        menuButton.addEventListener(
-          'click',
-          Layout.toggleSidebar
-        );
-      }
-
-      await loadReport();
-
-    } catch (error) {
-      console.error(
-        'Final Report startup error:',
-        error
-      );
-    }
-  }
-
-  start();
-
-})();
+      showToast
