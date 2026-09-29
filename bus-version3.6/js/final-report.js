@@ -101,8 +101,14 @@
 
       allExpenses = expData.expenses || [];
       bpEntries = bpData.entries || [];
-      sandLoaded = !!sandData;
       sandEntries = sandData ? (sandData.entries || []) : [];
+
+      // Reconcile the frontend report against the confirmed historical
+      // classification so the in-app report AND Excel export use the same
+      // Block Production vs Other/Standalone split even if an older
+      // normalized sand sheet is still missing one of the historical rows.
+      sandEntries = buildEffectiveSandEntries(sandEntries);
+      sandLoaded = sandEntries.length > 0;
 
       groupExpenses();
       renderSummary();
@@ -296,6 +302,130 @@
     const origin = String(e.Origin || '').trim().toLowerCase();
     if (origin.indexOf('block production') !== -1) return 'Block Production';
     return 'Standalone / Other Sand';
+  }
+
+  // Confirmed historical classification from Admin. These IDs are used
+  // only for sand reporting/classification. They never change Expenses.
+  const CONFIRMED_BLOCK_PRODUCTION_SAND_IDS = new Set([
+    'EXP-260928-230318-453',
+    'EXP-260928-230318-454',
+    'EXP-260928-230318-455',
+    'EXP-260928-230318-456',
+    'EXP-260928-230318-457',
+    'EXP-260928-230318-458',
+    'EXP-260928-230318-459',
+    'EXP-260928-230318-460',
+    'EXP-260928-230318-461',
+    'EXP-260928-230318-462',
+    'EXP-260928-230318-463',
+    'EXP-260928-230318-464',
+    'EXP-260928-230318-465',
+    'EXP-260928-230318-466',
+    'EXP-260928-230318-467',
+    'EXP-260928-230318-468',
+    'EXP-260928-230318-469'
+  ]);
+
+  const CONFIRMED_OTHER_SAND_IDS = new Set([
+    'EXP-260928-215302-155',
+    'EXP-260928-215302-156',
+    'EXP-260928-215302-163',
+    'EXP-260928-215302-173',
+    'EXP-260928-215302-175',
+    'EXP-260928-215306-177',
+    'EXP-260928-215306-183',
+    'EXP-260928-215306-186',
+    'EXP-260928-215306-188',
+    'EXP-260928-215306-189',
+    'EXP-260928-215306-192',
+    'EXP-260928-215306-193'
+  ]);
+
+  function expenseIsSand(e) {
+    const category = String(e.Category || '').trim().toLowerCase();
+    const description = String(e.Description || '').trim().toLowerCase();
+    return (
+      category === 'sharp sand' ||
+      category === 'plaster sand' ||
+      description.indexOf('sharp sand') !== -1 ||
+      description.indexOf('plaster sand') !== -1 ||
+      category.indexOf('sharp sand') !== -1 ||
+      category.indexOf('plaster sand') !== -1
+    );
+  }
+
+  function effectiveSandId(e) {
+    return String(e['Linked Expense ID'] || e.ExpenseId || e['Expense ID'] || '').trim();
+  }
+
+  function buildSandEntryFromExpense(e, origin) {
+    const description = String(e.Description || '').trim();
+    const category = String(e.Category || '').trim();
+    let qty = Number(e.Quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      const m = description.match(/(\d+(?:\.\d+)?)\s*trips?/i);
+      qty = m ? Number(m[1]) : 1;
+    }
+    const expenseId = String(e['Expense ID'] || '').trim();
+    return {
+      'Sand Entry ID': 'REPORT-SAND-' + expenseId,
+      'Linked Expense ID': expenseId,
+      'Date': e.Date || '',
+      'Site': e.Site || 'ALL',
+      'Sand Type': /plaster/i.test(category + ' ' + description) ? 'Plaster Sand' : 'Sharp Sand',
+      'Description': description,
+      'Quantity': qty,
+      'Unit': e.Unit || 'trips',
+      'Rate': qty > 0 ? (Number(e.Amount) || 0) / qty : Number(e.Amount) || 0,
+      'Amount': Number(e.Amount) || 0,
+      'Vendor': e.Vendor || '',
+      'Payment Method': e['Payment Method'] || '',
+      'Source': origin === 'Block Production' ? 'Confirmed Block Production Sand' : 'Confirmed Other Sand',
+      'Origin': origin,
+      'Timestamp': e.Timestamp || ''
+    };
+  }
+
+  function buildEffectiveSandEntries(normalizedRows) {
+    const rows = (normalizedRows || []).map(e => Object.assign({}, e));
+    const byExpenseId = new Map();
+
+    // Normalize origins using the confirmed historical IDs first.
+    rows.forEach(e => {
+      const id = effectiveSandId(e);
+      if (id) {
+        if (CONFIRMED_BLOCK_PRODUCTION_SAND_IDS.has(id)) e.Origin = 'Block Production';
+        else if (CONFIRMED_OTHER_SAND_IDS.has(id)) e.Origin = 'Standalone / Other Sand';
+        byExpenseId.set(id, e);
+      }
+    });
+
+    // Fill any missing confirmed historical rows directly from Expenses.
+    // This makes the Excel export reflect the approved classification even
+    // when a normalized sand migration was not completed or is incomplete.
+    allExpenses.forEach(e => {
+      if (!expenseIsSand(e)) return;
+      const id = String(e['Expense ID'] || '').trim();
+      if (!id) return;
+
+      let origin = null;
+      if (CONFIRMED_BLOCK_PRODUCTION_SAND_IDS.has(id)) origin = 'Block Production';
+      else if (CONFIRMED_OTHER_SAND_IDS.has(id)) origin = 'Standalone / Other Sand';
+      else return;
+
+      if (!byExpenseId.has(id)) {
+        const row = buildSandEntryFromExpense(e, origin);
+        rows.push(row);
+        byExpenseId.set(id, row);
+      }
+    });
+
+    return rows
+      .filter(e => expenseIsSand({
+        Category: e['Sand Type'] || e.Category || '',
+        Description: e.Description || ''
+      }))
+      .sort((a, b) => parseLocalDate(a.Date) - parseLocalDate(b.Date));
   }
 
   function sandRowsByOrigin(origin) {
@@ -684,7 +814,7 @@
 
     blockSandEntries.forEach(e => {
       const desc = e.Description || '';
-      const tripMatch = desc.match(/(\d+)\s*trip/i);
+      const tripMatch = desc.match(/(\d+(?:\.\d+)?)\s*trips?/i);
       const trips = Number(e.Quantity) || (tripMatch ? Number(tripMatch[1]) : 1);
 
       spAoa.push([
@@ -819,6 +949,24 @@
     }
 
     XLSX.utils.book_append_sheet(wb, sbWs, 'Sand Breakdown');
+
+    // ---- Sand Reconciliation Summary ----
+    // Explicitly shows the confirmed historical split used by the report.
+    const blockSandTotal = blockSandEntries.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+    const otherSandTotal = otherSandEntries.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
+    const sandReconAoa = [
+      ['SAND RECONCILIATION SUMMARY'],
+      ['Historical classification confirmed by Admin. This sheet does not alter financial Expenses totals.'],
+      [],
+      ['Classification', 'Transactions', 'Amount (₦)'],
+      ['Block Production Sand', blockSandEntries.length, blockSandTotal],
+      ['Other / Standalone Sand', otherSandEntries.length, otherSandTotal],
+      ['TOTAL NORMALIZED SAND', sandEntries.length, blockSandTotal + otherSandTotal]
+    ];
+    const sandReconWs = XLSX.utils.aoa_to_sheet(sandReconAoa);
+    sandReconWs['!cols'] = [{ wch: 32 }, { wch: 16 }, { wch: 18 }];
+    setCurrency(sandReconWs, [[5, 3], [6, 3], [7, 3]]);
+    XLSX.utils.book_append_sheet(wb, sandReconWs, 'Sand Reconciliation');
 
     // ---- Combined Sand Detail ----
     const sdAoa = [
