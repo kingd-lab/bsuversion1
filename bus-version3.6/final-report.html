@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
 
   <script>
-    // Apply saved theme before first paint.
     (function () {
       var stored = localStorage.getItem('sems_theme');
 
@@ -72,7 +71,12 @@
 
     <div class="mobile-topbar">
 
-      <button id="menuBtn">
+      <button
+        id="menuBtn"
+        type="button"
+        aria-label="Open menu"
+      >
+
         <svg
           class="ico"
           viewBox="0 0 24 24"
@@ -82,8 +86,11 @@
           stroke-linecap="round"
           stroke-linejoin="round"
         >
-          <path d="M3 6h18M3 12h18M3 18h18"/>
+          <path d="M3 6h18"/>
+          <path d="M3 12h18"/>
+          <path d="M3 18h18"/>
         </svg>
+
       </button>
 
       <strong>
@@ -115,7 +122,9 @@
         <button
           class="btn btn-primary"
           id="downloadExcelBtn"
+          type="button"
         >
+
           <svg
             class="ico"
             viewBox="0 0 24 24"
@@ -131,16 +140,13 @@
           </svg>
 
           Download Full Report (Excel)
+
         </button>
 
       </div>
 
     </div>
 
-
-    <!-- =========================================================
-         SUMMARY
-    ========================================================== -->
 
     <div class="card">
 
@@ -196,26 +202,20 @@
             Excavation / Foundation subtotal (control)
           </span>
 
-          <strong
-            id="foundationSubtotal"
-          >
+          <strong id="foundationSubtotal">
             —
           </strong>
 
         </div>
 
 
-        <div
-          class="preview-row total"
-        >
+        <div class="preview-row total">
 
           <span>
             Grand Total
           </span>
 
-          <strong
-            id="grandTotal"
-          >
+          <strong id="grandTotal">
             —
           </strong>
 
@@ -225,10 +225,6 @@
 
     </div>
 
-
-    <!-- =========================================================
-         BY PERIOD
-    ========================================================== -->
 
     <div class="card">
 
@@ -247,15 +243,11 @@
 
           <thead>
 
-            <tr
-              id="byPeriodHead"
-            ></tr>
+            <tr id="byPeriodHead"></tr>
 
           </thead>
 
-          <tbody
-            id="byPeriodRows"
-          ></tbody>
+          <tbody id="byPeriodRows"></tbody>
 
         </table>
 
@@ -263,10 +255,6 @@
 
     </div>
 
-
-    <!-- =========================================================
-         BLOCK PRODUCTION
-    ========================================================== -->
 
     <div class="card">
 
@@ -293,9 +281,7 @@
 
           </thead>
 
-          <tbody
-            id="blockProdRows"
-          ></tbody>
+          <tbody id="blockProdRows"></tbody>
 
         </table>
 
@@ -303,10 +289,6 @@
 
     </div>
 
-
-    <!-- =========================================================
-         CONCRETE WORKS
-    ========================================================== -->
 
     <div class="card">
 
@@ -334,9 +316,7 @@
 
           </thead>
 
-          <tbody
-            id="concreteRows"
-          ></tbody>
+          <tbody id="concreteRows"></tbody>
 
         </table>
 
@@ -344,10 +324,6 @@
 
     </div>
 
-
-    <!-- =========================================================
-         SAND
-    ========================================================== -->
 
     <div class="card">
 
@@ -369,8 +345,6 @@
       </div>
 
 
-      <!-- Sand by type -->
-
       <div class="table-wrap">
 
         <table>
@@ -387,16 +361,12 @@
 
           </thead>
 
-          <tbody
-            id="sandTypeRows"
-          ></tbody>
+          <tbody id="sandTypeRows"></tbody>
 
         </table>
 
       </div>
 
-
-      <!-- Sand source -->
 
       <div
         class="table-wrap"
@@ -415,16 +385,12 @@
 
           </thead>
 
-          <tbody
-            id="sandSourceRows"
-          ></tbody>
+          <tbody id="sandSourceRows"></tbody>
 
         </table>
 
       </div>
 
-
-      <!-- Sand detail -->
 
       <div
         class="table-wrap"
@@ -446,9 +412,7 @@
 
           </thead>
 
-          <tbody
-            id="sandDetailRows"
-          ></tbody>
+          <tbody id="sandDetailRows"></tbody>
 
         </table>
 
@@ -456,10 +420,6 @@
 
     </div>
 
-
-    <!-- =========================================================
-         CATEGORY DETAIL
-    ========================================================== -->
 
     <div class="card">
 
@@ -493,9 +453,7 @@
 
           </thead>
 
-          <tbody
-            id="detailRows"
-          ></tbody>
+          <tbody id="detailRows"></tbody>
 
         </table>
 
@@ -512,10 +470,6 @@
 
     </div>
 
-
-    <!-- =========================================================
-         HISTORICAL RECATEGORIZATION
-    ========================================================== -->
 
     <div
       class="card"
@@ -566,22 +520,20 @@
         "
       >
 
-        <select
-          id="recatFromCategory"
-        ></select>
-
+        <select id="recatFromCategory"></select>
 
         <button
           class="btn btn-outline"
           id="recatPreviewBtn"
+          type="button"
         >
           Preview Changes
         </button>
 
-
         <button
           class="btn btn-primary"
           id="recatApplyBtn"
+          type="button"
           style="display:none;"
         >
           Apply Changes
@@ -590,9 +542,7 @@
       </div>
 
 
-      <div
-        id="recatPreviewBox"
-      ></div>
+      <div id="recatPreviewBox"></div>
 
     </div>
 
@@ -605,20 +555,11 @@
   ></div>
 
 
-  <!-- =========================================================
-       JAVASCRIPT
-  ========================================================== -->
-
   <script src="js/theme.js"></script>
-
   <script src="js/api.js"></script>
-
   <script src="js/auth.js"></script>
-
   <script src="js/layout.js"></script>
-
   <script src="js/categories.js"></script>
-
   <script src="js/final-report.js"></script>
 
 </body>
