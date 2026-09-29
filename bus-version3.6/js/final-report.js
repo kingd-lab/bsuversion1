@@ -787,14 +787,8 @@
     if (
       !categories.length
     ) {
-      body.innerHTML = `
-        <tr>
-          <td colspan="4">
-            No Concrete Works
-            transactions found.
-          </td>
-        </tr>
-      `;
+      body.innerHTML =
+        '<tr><td colspan="4">No Concrete Works transactions found.</td></tr>';
 
       return;
     }
@@ -1070,10 +1064,7 @@
                 </td>
 
                 <td>
-                  ${
-                    item.quantity ||
-                    '—'
-                  }
+                  ${item.quantity || '—'}
                 </td>
 
                 <td>
@@ -1107,10 +1098,7 @@
           </td>
 
           <td>
-            ${
-              totalQty ||
-              '—'
-            }
+            ${totalQty || '—'}
           </td>
 
           <td>
@@ -1133,6 +1121,7 @@
           function (source) {
             return `
               <tr>
+
                 <td>
                   ${clean(source)}
                 </td>
@@ -1152,6 +1141,7 @@
                     ].amount
                   )}
                 </td>
+
               </tr>
             `;
           }
@@ -1191,6 +1181,7 @@
           function (row) {
             return `
               <tr>
+
                 <td>
                   ${formatDate(
                     row.Date
@@ -1228,6 +1219,7 @@
                     row.Amount
                   )}
                 </td>
+
               </tr>
             `;
           }
@@ -1600,6 +1592,10 @@
         byPeriod
       );
 
+      /*
+       * BLOCK PRODUCTION
+       * Created once here.
+       */
       const blockProduction =
         (
           groupedExpenses[
@@ -1723,6 +1719,10 @@
         ]
       );
 
+      /*
+       * CONCRETE WORKS
+       * Created once here.
+       */
       const concrete =
         (
           groupedExpenses[
@@ -1828,6 +1828,9 @@
         concreteSummary
       );
 
+      /*
+       * EXCAVATION
+       */
       const excavation =
         (
           groupedExpenses[
@@ -1889,6 +1892,9 @@
         ]
       );
 
+      /*
+       * BLOCK PRODUCTION SAND
+       */
       const blockSand =
         sandEntries
           .filter(
@@ -1937,6 +1943,9 @@
         blockSand
       );
 
+      /*
+       * OTHER / STANDALONE SAND
+       */
       const otherSand =
         sandEntries
           .filter(
@@ -1985,6 +1994,9 @@
         otherSand
       );
 
+      /*
+       * SAND DETAIL
+       */
       addSafeSheet(
         workbook,
         'Sand Detail',
@@ -2021,6 +2033,9 @@
         )
       );
 
+      /*
+       * SAND RECONCILIATION
+       */
       addSafeSheet(
         workbook,
         'Sand Reconciliation',
@@ -2066,8 +2081,26 @@
         ]
       );
 
+      /*
+       * CREATE THE REMAINING CATEGORY SHEETS.
+       *
+       * IMPORTANT:
+       * Block Production and Concrete Works already
+       * have dedicated sheets above. Skipping them here
+       * prevents the "Worksheet already exists" error.
+       */
       GROUP_ORDER.forEach(
         function (group) {
+
+          if (
+            group ===
+              'Block Production' ||
+            group ===
+              'Concrete Works'
+          ) {
+            return;
+          }
+
           const rows =
             (
               groupedExpenses[
@@ -2127,6 +2160,7 @@
       );
 
     } catch (error) {
+
       console.error(
         'Excel export error:',
         error
@@ -2144,6 +2178,7 @@
   }
 
   async function loadReport() {
+
     if (!currentUser) {
       currentUser =
         await Auth.requireRole(
@@ -2225,6 +2260,7 @@
   }
 
   function setupAdminRecategorize() {
+
     const card =
       document.getElementById(
         'recategorizeCard'
@@ -2323,9 +2359,11 @@
 
     preview.onclick =
       async function () {
+
         try {
 
           if (!select.value) {
+
             showToast(
               'Select a category first.',
               'error'
@@ -2344,6 +2382,7 @@
             !result ||
             !result.totalMatches
           ) {
+
             box.innerHTML =
               '<p>No new historical category matches found.</p>';
 
@@ -2384,6 +2423,7 @@
 
     apply.onclick =
       async function () {
+
         try {
 
           if (
@@ -2431,6 +2471,7 @@
   }
 
   async function start() {
+
     try {
 
       currentUser =
@@ -2450,6 +2491,7 @@
           'undefined' &&
         Layout.build
       ) {
+
         Layout.build(
           'final-report.html',
           currentUser
@@ -2467,6 +2509,7 @@
           'undefined' &&
         Layout.mainMount
       ) {
+
         Layout.mainMount()
           .innerHTML =
           template.innerHTML;
@@ -2483,6 +2526,7 @@
           'undefined' &&
         Layout.toggleSidebar
       ) {
+
         menuButton.addEventListener(
           'click',
           Layout.toggleSidebar
