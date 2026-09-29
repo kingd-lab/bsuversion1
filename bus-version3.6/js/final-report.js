@@ -13,6 +13,43 @@
  * sheets for Block Production and Other/Standalone Sand.
  */
 (function () {
+  // The report normally reads the shared taxonomy from js/categories.js.
+  // This fallback prevents the Final Report from crashing when an older or
+  // malformed categories.js is cached/deployed. The client categories.js
+  // supplied with this update remains the primary source.
+  const REPORT_CATEGORY_GROUPS = (typeof CATEGORY_GROUPS !== 'undefined')
+    ? CATEGORY_GROUPS
+    : {
+        'Accommodation': ['Hotel Accommodation', 'House Rent', 'House Cleaning', 'House Setup Materials'],
+        'Block Production': ['Store Construction', 'Cement', 'Burnt Bricks', 'Water Supply', 'Sharp Sand', 'Plaster Sand', 'Block Moulding Labour', 'Block Production'],
+        'Main Work': ['Chemical', 'Setting Out Materials', 'Security', 'PPE & Safety Equipment', 'Granite', 'Site Office'],
+        'Excavation of Trenches': ['Excavation of Trenches', 'Excavation Equipment Hire'],
+        'Concrete Works': [
+          'Column Blinding', 'Column Base', 'Trenches Casting', 'Columns Before Slab',
+          'Slab', 'Kickers', 'Column on Slab', 'Lintel', 'Beams & First Floor Slab',
+          'First Floor Columns', 'First Floor Lintel', 'Roof Beam', 'Mason/Poker Labour',
+          'Poker Rental', 'Bentonite', 'Block Setting', 'Hollow Filling'
+        ],
+        'Transportation of Tools': ['Transportation of Tools', 'Fuel for Transportation'],
+        'Ach Shittu Materials': ['Ach Shittu Materials (Bulk Purchase)'],
+        'Workmanship': ['Mason', 'Carpenter', 'Electrician', 'Plumber', 'Welder', 'Painter', 'General Labour', 'Workmanship (Other)'],
+        'Other Expenses': [
+          'Iron Rods', 'Timber', 'Roofing Materials', 'Paint', 'Tiles', 'Plumbing Materials',
+          'Electrical Materials', 'Doors & Windows', 'Glass & Aluminium', 'Blocks', 'Bricks',
+          'Generator Fuel', 'Diesel', 'Petrol', 'Internet & Communication', 'Equipment Hire',
+          'Machinery Repair', 'Tool Purchase', 'Haulage', 'Loading & Offloading', 'Site Cleaning',
+          'Office Supplies', 'Waste Disposal', 'Miscellaneous'
+        ]
+      };
+  const REPORT_CATEGORY_FLAT = Object.values(REPORT_CATEGORY_GROUPS).flat();
+  const REPORT_CATEGORY_GROUP_OF = {};
+  Object.keys(REPORT_CATEGORY_GROUPS).forEach(group => {
+    REPORT_CATEGORY_GROUPS[group].forEach(category => {
+      REPORT_CATEGORY_GROUP_OF[category] = group;
+    });
+  });
+  const REPORT_CATEGORY_GROUP_ORDER = Object.keys(REPORT_CATEGORY_GROUPS);
+
   let currentUser = null;
   let allExpenses = [];
   let bpEntries = [];
@@ -87,7 +124,7 @@
     byGroup = {};
 
     allExpenses.forEach(e => {
-      const g = CATEGORY_GROUP_OF[e.Category] || 'Other Expenses';
+      const g = REPORT_CATEGORY_GROUP_OF[e.Category] || 'Other Expenses';
       (byGroup[g] = byGroup[g] || []).push(e);
     });
 
@@ -107,7 +144,7 @@
     let grandTotal = 0;
     let grandCount = 0;
 
-    CATEGORY_GROUP_ORDER.forEach(g => {
+    REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
       const rows = byGroup[g] || [];
       grandTotal += rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       grandCount += rows.length;
@@ -119,7 +156,7 @@
     const concreteTotal = (byGroup['Concrete Works'] || [])
       .reduce((s, e) => s + (Number(e.Amount) || 0), 0);
 
-    document.getElementById('summaryRows').innerHTML = CATEGORY_GROUP_ORDER.map(g => {
+    document.getElementById('summaryRows').innerHTML = REPORT_CATEGORY_GROUP_ORDER.map(g => {
       const rows = byGroup[g] || [];
       const total = rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       const pct = grandTotal > 0 ? (total / grandTotal * 100) : 0;
@@ -144,7 +181,7 @@
   function renderByPeriod() {
     const periods = {};
 
-    CATEGORY_GROUP_ORDER.forEach(g => {
+    REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
       (byGroup[g] || []).forEach(e => {
         const key = periodKey(e.Date);
         periods[key] = periods[key] || {};
@@ -156,7 +193,7 @@
       .sort((a, b) => new Date('1 ' + a) - new Date('1 ' + b));
 
     document.getElementById('byPeriodHead').innerHTML =
-      ['Period', ...CATEGORY_GROUP_ORDER, 'Total']
+      ['Period', ...REPORT_CATEGORY_GROUP_ORDER, 'Total']
         .map(h => `<th>${h}</th>`).join('');
 
     const totals = {};
@@ -165,7 +202,7 @@
     const rowsHtml = sortedKeys.map(key => {
       let rowTotal = 0;
 
-      const cells = CATEGORY_GROUP_ORDER.map(g => {
+      const cells = REPORT_CATEGORY_GROUP_ORDER.map(g => {
         const v = (periods[key] && periods[key][g]) || 0;
         rowTotal += v;
         totals[g] = (totals[g] || 0) + v;
@@ -178,7 +215,7 @@
 
     const totalRow = `<tr style="font-weight:700;border-top:2px solid var(--color-border);">
       <td>TOTAL</td>
-      ${CATEGORY_GROUP_ORDER.map(g => `<td>${money(totals[g] || 0)}</td>`).join('')}
+      ${REPORT_CATEGORY_GROUP_ORDER.map(g => `<td>${money(totals[g] || 0)}</td>`).join('')}
       <td>${money(grand)}</td>
     </tr>`;
 
@@ -199,13 +236,13 @@
 
   // ---------------- Concrete Works ----------------
   // The updated Categories.gs places Block Setting and Hollow Filling
-  // inside CATEGORY_GROUPS['Concrete Works']. This report therefore picks
+  // inside REPORT_CATEGORY_GROUPS['Concrete Works']. This report therefore picks
   // them up automatically through CATEGORY_GROUP_OF and CATEGORY_GROUPS.
   function concreteBreakdown() {
     const rows = byGroup['Concrete Works'] || [];
     const by = {};
 
-    CATEGORY_GROUPS['Concrete Works'].forEach(c => {
+    REPORT_CATEGORY_GROUPS['Concrete Works'].forEach(c => {
       by[c] = { count: 0, total: 0 };
     });
 
@@ -327,7 +364,7 @@
 
   function populateDetailSelect() {
     const sel = document.getElementById('detailGroupSelect');
-    sel.innerHTML = CATEGORY_GROUP_ORDER
+    sel.innerHTML = REPORT_CATEGORY_GROUP_ORDER
       .map(g => `<option value="${g}">${g}</option>`).join('');
     renderDetail(sel.value);
   }
@@ -482,7 +519,7 @@
     let grandTotal = 0;
     let grandCount = 0;
 
-    CATEGORY_GROUP_ORDER.forEach(g => {
+    REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
       const rows = byGroup[g] || [];
       grandTotal += rows.reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       grandCount += rows.length;
@@ -504,7 +541,7 @@
     sumAoa.push([]);
     sumAoa.push(['Category', 'Total Amount (\u20a6)', '% of Total']);
 
-    CATEGORY_GROUP_ORDER.forEach(g => {
+    REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
       const total = (byGroup[g] || []).reduce((s, e) => s + (Number(e.Amount) || 0), 0);
       sumAoa.push([g, total, grandTotal > 0 ? total / grandTotal : 0]);
       sumCur.push([sumAoa.length, 2]);
@@ -523,7 +560,7 @@
     sumWs['!cols'] = [{ wch: 50 }, { wch: 18 }, { wch: 12 }];
     setCurrency(sumWs, sumCur);
 
-    for (let i = 5; i <= 4 + CATEGORY_GROUP_ORDER.length; i++) {
+    for (let i = 5; i <= 4 + REPORT_CATEGORY_GROUP_ORDER.length; i++) {
       const ref = XLSX.utils.encode_cell({ r: i - 1, c: 2 });
       if (sumWs[ref]) sumWs[ref].z = '0.0%';
     }
@@ -533,7 +570,7 @@
     // ---- By Period ----
     const periods = {};
 
-    CATEGORY_GROUP_ORDER.forEach(g => {
+    REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
       (byGroup[g] || []).forEach(e => {
         const key = periodKey(e.Date);
         periods[key] = periods[key] || {};
@@ -549,7 +586,7 @@
 
     bpAoa.push(['SITE EXPENSES — BY PERIOD']);
     bpAoa.push([]);
-    bpAoa.push(['Period', ...CATEGORY_GROUP_ORDER, 'Total']);
+    bpAoa.push(['Period', ...REPORT_CATEGORY_GROUP_ORDER, 'Total']);
 
     const periodTotals = {};
     let grand = 0;
@@ -558,7 +595,7 @@
       let rowTotal = 0;
       const row = [key];
 
-      CATEGORY_GROUP_ORDER.forEach(g => {
+      REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
         const v = (periods[key] && periods[key][g]) || 0;
         row.push(v);
         rowTotal += v;
@@ -569,26 +606,26 @@
       grand += rowTotal;
       bpAoa.push(row);
 
-      for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) {
+      for (let c = 2; c <= REPORT_CATEGORY_GROUP_ORDER.length + 2; c++) {
         bpCur.push([bpAoa.length, c]);
       }
     });
 
     const totalRow = [
       'TOTAL',
-      ...CATEGORY_GROUP_ORDER.map(g => periodTotals[g] || 0),
+      ...REPORT_CATEGORY_GROUP_ORDER.map(g => periodTotals[g] || 0),
       grand
     ];
     bpAoa.push(totalRow);
 
-    for (let c = 2; c <= CATEGORY_GROUP_ORDER.length + 2; c++) {
+    for (let c = 2; c <= REPORT_CATEGORY_GROUP_ORDER.length + 2; c++) {
       bpCur.push([bpAoa.length, c]);
     }
 
     const bpWs = XLSX.utils.aoa_to_sheet(bpAoa);
     bpWs['!cols'] = [
       { wch: 15 },
-      ...CATEGORY_GROUP_ORDER.map(() => ({ wch: 19 })),
+      ...REPORT_CATEGORY_GROUP_ORDER.map(() => ({ wch: 19 })),
       { wch: 19 }
     ];
     setCurrency(bpWs, bpCur);
@@ -682,7 +719,7 @@
     XLSX.utils.book_append_sheet(wb, otherSandWs, 'Other Sand Detail');
 
     // ---- One detail sheet per category group ----
-    CATEGORY_GROUP_ORDER.forEach(g => {
+    REPORT_CATEGORY_GROUP_ORDER.forEach(g => {
       const rows = byGroup[g] || [];
       const subtitle = `Site Expense Manager | Detailed expense record | Report date: ${reportDate} | Data through ${latestStr}`;
       const ws = buildDetailSheetAoa(g.toUpperCase(), subtitle, rows);
@@ -852,7 +889,7 @@
     card.style.display = 'block';
 
     const sel = document.getElementById('recatFromCategory');
-    const candidateCategories = CATEGORY_FLAT.filter(c =>
+    const candidateCategories = REPORT_CATEGORY_FLAT.filter(c =>
       allExpenses.some(e => e.Category === c)
     );
 
