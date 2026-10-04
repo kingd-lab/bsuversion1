@@ -8,6 +8,7 @@
 <div class="mobile-topbar"><button id="menuBtn">☰</button><strong>Salaries</strong></div>
 <div class="topbar"><div><h1>Salaries</h1><p>Salary payments are kept separately from site expenses. Allowances remain in expenses.</p></div></div>
 <div class="card salary-summary"><h3>Total salaries: <span id="salaryTotal">—</span></h3><div class="salary-filters"><label>Site <select id="salarySiteFilter"><option value="">All sites</option></select></label><label>Salary month <input type="month" id="salaryMonthFilter"></label><button id="exportSalaries">Export salaries</button></div></div>
+<p id="salaryStatus" class="salary-status" role="status" aria-live="polite" hidden></p>
 <div id="salaryAdmin" hidden>
 <div class="card"><h3>Add salary</h3><form id="salaryForm" class="salary-form">
 <label>Payment date<input name="date" type="date" required></label>
@@ -17,7 +18,7 @@
 <label>Amount (NGN)<input name="amount" type="number" min="0.01" step="0.01" required></label>
 <label>Payment method<select name="paymentMethod"><option>Cash</option><option>Transfer</option></select></label>
 <label class="salary-wide">Description<input name="description"></label><div class="salary-actions salary-wide"><button type="submit">Save salary</button></div></form></div>
-<div class="card"><h3>Import salaries</h3><div class="salary-import-controls"><button id="salaryTemplate">Download template</button><input id="salaryFile" type="file" accept=".xlsx,.csv"><button id="salaryImport">Import selected file</button></div><p>Columns: Date, Site, Staff Name, Role, Salary Month, Amount, Payment Method, Description.</p></div>
+<div class="card"><h3>Import salaries</h3><div class="salary-import-controls"><button id="salaryTemplate">Download template</button><input id="salaryFile" type="file" accept=".xlsx,.csv"><button id="salaryImport">Preview selected file</button></div><div id="salaryImportPreview" class="table-wrap" hidden><table><thead><tr><th>Date</th><th>Staff</th><th>Role</th><th>Amount</th><th>Description</th></tr></thead><tbody id="salaryImportRows"></tbody></table></div><button id="salaryConfirmImport" type="button" hidden>Confirm salary import</button><p>Columns: Date, Site, Staff Name, Role, Salary Month, Amount, Payment Method, Description.</p></div>
 <div class="card"><h3>Move existing salary expenses</h3><button id="salaryPreview">Preview existing salaries</button><p id="migrationSummary"></p><div class="table-wrap"><table><thead><tr><th>Date</th><th>Site</th><th>Description</th><th>Amount</th></tr></thead><tbody id="migrationRows"></tbody></table></div><button id="salaryMigrate" hidden>Move previewed salaries</button><p>Original records are archived before moving. Allowances stay in Expenses.</p></div>
 </div>
 <div class="card"><h3>Salary payments</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Site</th><th>Staff</th><th>Role</th><th>Month</th><th>Amount</th><th>Payment</th><th>Description</th></tr></thead><tbody id="salaryRows"></tbody></table></div></div>
