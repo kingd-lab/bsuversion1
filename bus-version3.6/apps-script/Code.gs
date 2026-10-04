@@ -31,6 +31,7 @@ const HEALTH_AT_RISK_SPEND_PCT = 85;  // spend / budget >= this (even on schedul
 
 function doGet(e) {
   try {
+    if (e.parameter.payload) return doPost({postData: {contents: e.parameter.payload}});
     const action = e.parameter.action;
     const token = e.parameter.token;
 
@@ -64,6 +65,9 @@ function doGet(e) {
 
       case 'getColumnProgress':
         return jsonOut(getColumnProgress(requireSession(token)));
+
+      case 'getSalaries':
+        return jsonOut(getSalaries(requireSession(token)));
 
       case 'getCashBook':
         return jsonOut(getCashBook(requireSession(token)));
@@ -111,6 +115,12 @@ function doPost(e) {
 
       case 'autoRecategorize':
         return jsonOut(autoRecategorize(requireSession(body.token), body.fromCategory, body.dryRun !== false));
+
+      case 'addSalariesBulk':
+        return jsonOut(addSalariesBulk(requireSession(body.token), body.entries));
+
+      case 'migrateSalaryExpenses':
+        return jsonOut(migrateSalaryExpenses(requireSession(body.token), body.dryRun, body.expectedSignature));
 
       case 'addCashBookEntry':
         return jsonOut(addCashBookEntry(requireSession(body.token), body.entry));

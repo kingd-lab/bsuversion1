@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Salaries — Site Expense Manager</title>
+<link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/dashboard.css"><link rel="stylesheet" href="css/forms.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script></head><body>
+<template id="pageContent">
+<div class="mobile-topbar"><button id="menuBtn">☰</button><strong>Salaries</strong></div>
+<div class="topbar"><div><h1>Salaries</h1><p>Salary payments are kept separately from site expenses. Allowances remain in expenses.</p></div></div>
+<div class="card"><h3>Total salaries: <span id="salaryTotal">—</span></h3><label>Site <select id="salarySiteFilter"><option value="">All sites</option></select></label><label>Salary month <input type="month" id="salaryMonthFilter"></label><button id="exportSalaries">Export salaries</button></div>
+<div id="salaryAdmin" hidden>
+<div class="card"><h3>Add salary</h3><form id="salaryForm">
+<label>Payment date<input name="date" type="date" required></label>
+<label>Site<select name="site" id="salarySite" required></select></label>
+<label>Staff name<input name="staffName" required></label><label>Role<input name="role"></label>
+<label>Salary month<input name="salaryMonth" type="month" required></label>
+<label>Amount (NGN)<input name="amount" type="number" min="0.01" step="0.01" required></label>
+<label>Payment method<select name="paymentMethod"><option>Cash</option><option>Transfer</option></select></label>
+<label>Description<input name="description"></label><button type="submit">Save salary</button></form></div>
+<div class="card"><h3>Import salaries</h3><button id="salaryTemplate">Download template</button><input id="salaryFile" type="file" accept=".xlsx,.csv"><button id="salaryImport">Import selected file</button><p>Columns: Date, Site, Staff Name, Role, Salary Month, Amount, Payment Method, Description.</p></div>
+<div class="card"><h3>Move existing salary expenses</h3><button id="salaryPreview">Preview existing salaries</button><p id="migrationSummary"></p><div class="table-wrap"><table><thead><tr><th>Date</th><th>Site</th><th>Description</th><th>Amount</th></tr></thead><tbody id="migrationRows"></tbody></table></div><button id="salaryMigrate" hidden>Move previewed salaries</button><p>Original records are archived before moving. Allowances stay in Expenses.</p></div>
+</div>
+<div class="card table-wrap"><table><thead><tr><th>Date</th><th>Site</th><th>Staff</th><th>Role</th><th>Month</th><th>Amount</th><th>Payment</th><th>Description</th></tr></thead><tbody id="salaryRows"></tbody></table></div>
+</template><div id="toast" class="toast"></div>
+<script src="js/theme.js"></script><script src="js/api.js"></script><script src="js/auth.js"></script><script src="js/layout.js"></script><script src="js/salaries.js"></script>
+</body></html>

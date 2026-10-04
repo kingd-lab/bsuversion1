@@ -43,6 +43,7 @@ const Layout = (function () {
   const NAV = {
 
     'Site Manager': [
+      { href: 'salaries.html', icon: ICONS.users, label: 'Salaries' },
 
       {
         href: 'manager.html',
@@ -96,6 +97,7 @@ const Layout = (function () {
 
 
     'Admin': [
+      { href: 'salaries.html', icon: ICONS.users, label: 'Salaries' },
 
       {
         href: 'dashboard.html',
@@ -185,6 +187,7 @@ const Layout = (function () {
 
 
     'Boss': [
+      { href: 'salaries.html', icon: ICONS.users, label: 'Salaries' },
 
       {
         href: 'report.html',
