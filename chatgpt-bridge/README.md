@@ -44,7 +44,12 @@ its normal audit record; business records are never changed by bridge tools.
 
 Run `npm ci` and `npm test`. Use MCP Inspector against the deployed endpoint with
 a valid owner token to check initialize, tools/list and all five reads. Check that
-no token, another user's token, wrong audience and missing scope all return 401.
+no token, another user's token, wrong audience and missing scope all return
+an MCP authentication error with `mcp/www_authenticate`, without any records.
+Protocol initialization and tool descriptions are public so ChatGPT can discover
+the OAuth requirements; every data-reading handler still requires verified owner
+credentials. Tool declarations include both top-level and compatibility metadata
+for OAuth, including with SDK versions that drop unknown registration fields.
 Confirm the cashbook read succeeds after the Apps Script update. Compare returned
 records with the app before relying on a report. Local unit checks alone do not
 prove live connectivity. Only deploy this service with HTTPS and normal host
