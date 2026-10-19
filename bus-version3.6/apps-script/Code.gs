@@ -986,7 +986,7 @@ function deleteCashBookEntry(session, entryId) {
 }
 
 function getCashBook(session) {
-  if (session.role !== 'Admin') throw new Error('Access denied');
+  if (session.role !== 'Admin' && session.role !== 'Boss') throw new Error('Access denied');
 
   const sheet = getSheet(SHEET_CASH_BOOK);
   const rows = sheet.getDataRange().getValues();
