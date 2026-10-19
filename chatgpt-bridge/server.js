@@ -52,4 +52,4 @@ app.post('/mcp', async (req,res)=>{
   catch {if (!res.headersSent) res.status(500).json({error:'MCP request failed'});}
 });
 app.all('/mcp',(req,res)=>res.status(405).end());
-app.listen(Number(process.env.PORT || 8080),'0.0.0.0');
+export default app;

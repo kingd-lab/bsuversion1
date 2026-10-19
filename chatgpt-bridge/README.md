@@ -64,3 +64,21 @@ boss, with source records and retrieval time.”
 Tools return raw data; they do not silently exclude salaries, apply historical
 corrections, combine source totals, or establish that a receipt exists. State the
 rules used for each report. Review uncertain classifications before finalizing.
+
+## Vercel settings
+
+Create a SEPARATE Vercel project by importing `kingd-lab/bsuversion1`.
+Select branch `feat/chatgpt-read-only-bridge` (or main after merging this PR).
+Set Root Directory to `chatgpt-bridge`, Node.js to 22.x or later and keep framework
+and build settings auto-detected. `server.js` exports Express for Vercel's native
+Express support; no rewrites or static output directory are needed. Keep the
+existing BSU frontend project's root directory as it is.
+
+Add every required `.env.example` variable to this project's environment settings.
+`PUBLIC_URL` must be the stable production domain, without a trailing `/mcp`.
+Set OAuth token audience to that same domain plus `/mcp`. Configure the stable
+production URL rather than a changing preview hostname. Redeploy after changing
+variables. Check `/health`, then configure ChatGPT with `/mcp`. OAuth and Boss
+credentials must be configured before deployment will start successfully.
+
+You remain Admin in the BSU app. Only the bridge uses the separate Boss account.
